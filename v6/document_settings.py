@@ -6,6 +6,10 @@ from get_pdf import get_pdf_page_count
 
 
 def prepare_document(pdf_path, max_pages, default_pdf, default_index, cache_directory):
+    # 选择文档
+    # 1. 检查 PDF 路径和读取页数。
+    # 2. 默认教材沿用原索引，其他 PDF 按路径分配独立索引。
+    # 3. 返回绑定设置，不在这里创建知识库。
     pdf = Path(pdf_path).expanduser().resolve()
     if pdf.suffix.lower() != '.pdf':
         raise ValueError('请选择 PDF 文件')
@@ -21,6 +25,10 @@ def prepare_document(pdf_path, max_pages, default_pdf, default_index, cache_dire
 
 
 def save_uploaded_pdf(uploaded, directory):
+    # 保存上传
+    # 1. 检查文件名和内容，按内容摘要确定保存目录。
+    # 2. 已有文件直接复用。
+    # 3. 新文件先完整写入临时位置，再发布为正式 PDF。
     name = Path(uploaded.name).name
     if Path(name).suffix.lower() != '.pdf':
         raise ValueError('请选择 PDF 文件')

@@ -10,7 +10,9 @@ from conversation_lock import (ConversationBusyError, DocumentBusyError,
 
 
 def failure_message(error, stage):
-    """将可恢复的失败转成用户能采取行动的提示，不展示请求头或凭据。"""
+    # 失败提示
+    # 1. 按错误种类区分文件、模型、密钥和网络问题。
+    # 2. 返回用户能采取行动的提示，不展示请求凭据。
     from openai import (APIConnectionError, APIStatusError, APITimeoutError,
                         AuthenticationError, RateLimitError)
     if isinstance(error, (ConversationBusyError, DocumentBusyError)):
@@ -39,12 +41,17 @@ def failure_message(error, stage):
 
 
 def _new_request(question, index):
+    # 创建请求
+    # 1. 给问题生成请求编号，记录对应的消息位置和初始状态。
     return {'id': uuid4().hex, 'question': question, 'user_index': index,
             'status': 'created', 'attempts': 0, 'stages': {}, 'elapsed_seconds': 0}
 
 
 def recover_request(history_path):
-    """只有拿到会话锁后才恢复；另一页仍在处理时保持 running 状态。"""
+    # 恢复检查
+    # 1. 尝试取得会话锁。
+    # 2. 拿不到锁说明仍在处理，只读返回当前状态。
+    # 3. 拿到锁后再检查真正中断的请求。
     try:
         with conversation_lock(history_path):
             return _recover_request(history_path)
@@ -53,7 +60,10 @@ def recover_request(history_path):
 
 
 def _recover_request(history_path):
-    """识别中断和旧的未回答消息，读取页面本身不重新请求模型。"""
+    # 恢复请求
+    # 1. 读取会话信息和原消息，找出没有完成的问题。
+    # 2. 把遗留阶段标为中断，无法确定的耗时留空。
+    # 3. 保存可重试状态，不自动调用模型。
     metadata = load_metadata(history_path)
     messages = read_messages(history_path)
     request = metadata.get('request')
@@ -83,11 +93,16 @@ def _recover_request(history_path):
 
 
 def start_request(history_path, question):
+    # 开始提问
+    # 1. 先取得会话锁，再交给创建流程，防止重复提交。
     with conversation_lock(history_path):
         return _start_request(history_path, question)
 
 
 def _start_request(history_path, question):
+    # 保存问题
+    # 1. 检查问题内容和上次未完成请求。
+    # 2. 先保存请求信息，再追加一次用户消息。
     if not isinstance(question, str) or not question.strip():
         raise ValueError('请输入非空问题')
     metadata = _recover_request(history_path)
@@ -102,6 +117,10 @@ def _start_request(history_path, question):
 
 
 def _saved_answer(history_path, request):
+    # 核对消息
+    # 1. 按请求记录的位置核对原问题，缺失时补写一次。
+    # 2. 如果回答已经落盘就复用，避免再次生成。
+    # 3. 消息顺序不一致时提示检查，不覆盖原文件。
     messages = read_messages(history_path)
     index = request['user_index']
     expected = {'role': 'user', 'content': request['question']}
@@ -119,6 +138,10 @@ def _saved_answer(history_path, request):
 
 
 def _generate_title(history_path, metadata, on_progress=None):
+    # 生成标题
+    # 1. 读取完整首问，独立请求大模型概括标题。
+    # 2. 保存有效标题；失败只记录标题错误，不回滚回答。
+    # 3. 记录本次标题生成耗时。
     if metadata.get('title'):
         return
     question = first_question(read_messages(history_path))
@@ -144,7 +167,8 @@ def _generate_title(history_path, metadata, on_progress=None):
 
 
 def generate_session_title(history_path, on_progress=None):
-    """只生成或重试标题，不重新检索或生成已完成的回答。"""
+    # 重试标题
+    # 1. 取得会话锁，只处理标题，不重新生成回答。
     with conversation_lock(history_path):
         metadata = load_metadata(history_path)
         _generate_title(history_path, metadata, on_progress)
@@ -153,11 +177,18 @@ def generate_session_title(history_path, on_progress=None):
 
 def run_request(history_path, model_loader, on_progress=None, on_build_status=None,
                 force_rebuild=False):
+    # 处理请求
+    # 1. 取得会话锁后运行一次处理，阻止其他页面重复执行。
     with conversation_lock(history_path):
         return _run_request(history_path, model_loader, on_progress, on_build_status, force_rebuild)
 
 
 def _run_request(history_path, model_loader, on_progress, on_build_status, force_rebuild):
+    # 执行问答
+    # 1. 先核对已有回答，再准备本次尝试的状态。
+    # 2. 加载模型，锁定共享文档并调用问答服务。
+    # 3. 保存回答，再按需生成标题；失败保留原问题供重试。
+    # 4. 保存本次总耗时。
     metadata = load_metadata(history_path)
     request = metadata.get('request')
     if not request:
@@ -178,6 +209,9 @@ def _run_request(history_path, model_loader, on_progress, on_build_status, force
     save_metadata(history_path, metadata)
 
     def report(event):
+        # 记录进度
+        # 1. 把阶段状态及耗时写入会话信息。
+        # 2. 如果页面提供回调，再同步更新显示。
         request['stage'] = event['stage']
         request['stages'][event['stage']] = dict(event)
         save_metadata(history_path, metadata)

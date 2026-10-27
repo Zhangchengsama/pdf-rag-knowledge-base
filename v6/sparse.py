@@ -1,129 +1,54 @@
-import jieba
-import json
-import pickle
+"""中文分词、BM25 创建与召回。"""
 from pathlib import Path
+import jieba
 from rank_bm25 import BM25Okapi
+import cache_store
+from cache_store import load_bm25, save_bm25
+from config import FINAL_K
+
+PUNCTUATION = frozenset("，。？！：；、（）【】《》")
+
 
 def segment_text(text):
-    """对文本进行分词处理
-
-    text: 输入的文本字符串
-
-    return: 返回一个包含分词结果的列表
-    """
-    segments = list(jieba.cut(text))
+    # 中文分词
+    # 1. 使用原来的 jieba 分词。
+    # 2. 去掉两端空白，再过滤空词和原有标点。
     result = []
-
-    # 逐词去掉两端空白，再按下方列举的标点进行过滤。
-    for word in segments:
+    for word in jieba.cut(text):
         word = word.strip()
-        if (word and word != "，" 
-            and word != "。" and word != "？" and word != "！" 
-            and word != "：" and word != "；" and word != "、" 
-            and word != "（" and word != "）" and word != "【" 
-            and word != "】" and word != "《" and word != "》"):
+        if word and word not in PUNCTUATION:
             result.append(word)
     return result
 
+
 def build_corpus(output_path: Path):
-    """构建语料库
+    # 准备语料
+    # 1. 加载文本列表。
+    # 2. 逐块分词，第 i 条语料仍对应第 i 个文本块。
+    return [segment_text(item["text"]) for item in cache_store.load_chunks(output_path)]
 
-    output_path: 用于读取 JSON 或派生同名 .pkl 缓存的 Path 路径
-
-    return: 返回一个包含分词结果的列表
-    """
-    data = []
-
-    with open(output_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    # 外层列表与 JSON 文本块一一对应；每个内层列表保存该块的分词结果。
-    corpus = []
-    for item in data:
-        corpus.append(segment_text(item["text"]))
-    return corpus
 
 def build_bm25(corpus):
-    """构建BM25模型
+    # 创建词库
+    # 1. 将已经分词的二维语料交给原 BM25 实现。
+    return BM25Okapi(corpus)
 
-    corpus: 已分词的二维列表（文本块 -> 词语列表），不是文件路径
-    
-    return: 返回一个BM25模型对象
-    """
-    bm25 = BM25Okapi(corpus)
-
-    return bm25
-
-def save_bm25(bm25, output_path: Path):
-    """保存BM25模型到指定路径
-
-    bm25: BM25模型对象
-
-    output_path: 用于读取 JSON 或派生同名 .pkl 缓存的 Path 路径
-    """
-    with open(output_path.with_suffix(".pkl"), "wb") as f:
-        pickle.dump(bm25, f)
-
-def load_bm25(output_path: Path):
-    """加载BM25模型
-
-    output_path: 用于读取 JSON 或派生同名 .pkl 缓存的 Path 路径
-
-    return: 返回一个BM25模型对象
-    """
-    with open(output_path.with_suffix(".pkl"), "rb") as f:
-        bm25 = pickle.load(f)
-    return bm25
 
 def query_bm25(bm25: BM25Okapi, query: str):
-    """使用BM25模型进行查询
+    # 关键词评分
+    # 1. 使用与建库相同的分词规则处理问题。
+    # 2. 取得每个文本块的 BM25 得分。
+    return bm25.get_scores(segment_text(query))
 
-    bm25: BM25模型对象
 
-    query: 查询字符串
-
-    return: 返回一个包含每个文档的相关性得分的列表
-    """
-    # 查询与建库使用同一分词和过滤流程，scores 的下标对应语料块下标。
-    query_tokens = segment_text(query)
-    scores = bm25.get_scores(query_tokens)
-    return scores
-
-def query_bm25_top_k(output_path, bm25: BM25Okapi, query: str, k: int = 5, data=None):
-    """使用BM25模型进行查询并返回前k个相关性最高的文档
-
-    bm25: BM25模型对象
-
-    query: 查询字符串
-
-    k: 返回的文档数量
-
-    data: 可选的完整文本块列表；省略时从 output_path 加载
-
-    return: 返回一个包含前k个相关性最高(得分大于零)的文段(top_k_texts)和得分的列表(top_k_scores),以及对应的索引列表(top_k_indices)
-    """
+def query_bm25_top_k(output_path, bm25: BM25Okapi, query: str, k=FINAL_K, data=None):
+    # 关键词召回
+    # 1. 按得分降序取候选，保留原来的同分顺序。
+    # 2. 过滤零分和负分，下标与分数一一对应。
+    # 3. 读取或复用文本，沿排名回查原文。
     scores = query_bm25(bm25, query)
-    top_k_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:k]
-    # 只保留正分候选，因此返回数量可能少于 k，也可能为空。
-    top_k_indices = [i for i in top_k_indices if scores[i] > 0]
-    top_k_scores = [scores[i] for i in top_k_indices]
-
-    if data is None:
-        with open(output_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-    # 按分数排序后的下标回查原文，三个返回列表按位置一一对应。
-    text_texts = []
-    for indice in top_k_indices:
-        text_texts.append(data[indice]["text"])
-
-    return text_texts, top_k_scores , top_k_indices
-
-if __name__ == "__main__":
-    road = Path(r"C:\Users\36143\Desktop\教材资料\化学\普通高中教科书·化学必修 第一册.pdf")
-    output_path = road.with_suffix(".json")
-    query = "氧化还原反应是什么"
-    corpus = build_corpus(output_path)
-    bm25 = build_bm25(corpus)
-    top_k_texts , top_k_scores, top_k_indices= query_bm25_top_k(output_path, bm25, query, k=5)
-    print(top_k_texts)
+    positions = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:k]
+    positions = [i for i in positions if scores[i] > 0]
+    selected_scores = [scores[i] for i in positions]
+    chunks = cache_store.load_chunks(output_path, data)
+    return [chunks[i]["text"] for i in positions], selected_scores, positions

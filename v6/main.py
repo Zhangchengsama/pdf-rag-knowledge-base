@@ -1,24 +1,48 @@
-from rag_service import answer_question
+"""统一入口：python main.py 启动网页，python main.py --cli 进入终端。"""
+import argparse
 from pathlib import Path
-from sentence_transformers import SentenceTransformer
+import subprocess
+import sys
+from config import load_settings
 
-# 命令行入口：选定 PDF 与对应索引，再读取一个问题并输出回答。
-road=Path(r"C:\Users\36143\Desktop\教材资料\化学\普通高中教科书·化学必修 第一册.pdf")
-# PDF 同名 JSON 保存文本块及来源信息。
-output_path = road.with_suffix(".json")
-index_path = r"C:\Users\36143\Desktop\Python_work\index\test_index.bin"
-max_pages = 11  # 改成 30 表示读取前 30 页；None 表示全文。
-force_rebuild = False  # 同页数内容变化时设为 True；重建后改回 False 以复用缓存。
-# 只使用本地缓存的嵌入模型，建库与问题编码共用此实例。
-Model = SentenceTransformer(
-    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-    local_files_only=True
-    )
-text_input = str(input("请输入要查询的文本："))
 
-# 服务层负责补齐知识库缓存、融合检索、组织提示词并调用大模型。
-result= answer_question(road=road, index_path= index_path, text_input=text_input, model= Model,
-                       max_pages=max_pages, force_rebuild=force_rebuild)
+def parse_arguments(argv=None):
+    # 选择模式
+    # 1. 读取命令行参数。
+    # 2. 网页工作模式与终端模式互斥，没指定时启动网页服务。
+    parser = argparse.ArgumentParser(description="PDF RAG 知识库")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--cli", action="store_true", help="在终端中提问")
+    modes.add_argument("--web", action="store_true", help=argparse.SUPPRESS)
+    return parser.parse_args(argv)
 
-print("最终回答：")
-print(result['answer'])
+
+def launch_web():
+    # 启动网页
+    # 1. 使用当前 Python 解释器调用 Streamlit 官方入口。
+    # 2. 给同一个文件传入网页工作标记，避免再次启动服务。
+    command = [sys.executable, "-m", "streamlit", "run",
+               str(Path(__file__).resolve()), "--", "--web"]
+    return subprocess.run(command).returncode
+
+
+def main(argv=None):
+    # 分派入口
+    # 1. 先处理启动参数和帮助信息。
+    # 2. 需要运行时再导入对应界面，共享同一份配置。
+    args = parse_arguments(argv)
+    if args.cli:
+        from cli import run_cli
+        run_cli(load_settings())
+    elif args.web:
+        from ui import run_web
+        run_web(load_settings())
+    else:
+        return launch_web()
+    return 0
+
+
+if __name__ == "__main__":
+    exit_code = main()
+    if exit_code:
+        raise SystemExit(exit_code)

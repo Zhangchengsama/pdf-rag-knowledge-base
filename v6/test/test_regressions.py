@@ -3,7 +3,6 @@
 运行：python -B -m unittest discover -s test -p test_regressions.py -v
 测试产物保留在系统临时目录，每次仅产生数 KB，不执行目录删除。
 """
-import ast
 import importlib
 import json
 from pathlib import Path
@@ -45,6 +44,8 @@ class RegressionTests(unittest.TestCase):
         cls.dense = importlib.import_module('dense')
         cls.sparse = importlib.import_module('sparse')
         cls.service = importlib.import_module('rag_service')
+        cls.knowledge = importlib.import_module('knowledge_base')
+        cls.pdf_reader = importlib.import_module('get_pdf')
         cls.evaluation = importlib.import_module('eval')
 
     def setUp(self):
@@ -61,7 +62,7 @@ class RegressionTests(unittest.TestCase):
     def test_first_build_creates_loadable_bm25(self):
         """首次建库应生成可读取的 BM25，且再次调用能复用缓存。"""
         self.create_pdf(['apple', 'banana'])
-        with patch.object(self.service, 'get_pdf_text', wraps=self.service.get_pdf_text) as extract:
+        with patch.object(self.knowledge, 'get_pdf_text', wraps=self.pdf_reader.get_pdf_text) as extract:
             self.service.building_data(self.pdf, str(self.index), TinyModel())
             self.service.building_data(self.pdf, str(self.index), TinyModel())
         extract.assert_called_once()
@@ -106,7 +107,7 @@ class RegressionTests(unittest.TestCase):
         """2 页 PDF 在上限 3、50、全文之间切换，均复用同一份缓存。"""
         self.create_pdf(['apple', 'banana'])
         self.build(3)
-        with patch.object(self.service, 'get_pdf_text', side_effect=AssertionError('不应重新提取')):
+        with patch.object(self.knowledge, 'get_pdf_text', side_effect=AssertionError('不应重新提取')):
             for limit in (3, 50, None):
                 result = self.build(limit)
                 self.assertFalse(result['rebuilt'])
@@ -152,7 +153,7 @@ class RegressionTests(unittest.TestCase):
         """强制重建中途失败后，下次普通调用也必须重新完成建库。"""
         self.create_pdf(['apple', 'banana'])
         self.build()
-        with patch.object(self.service, 'save_bm25', side_effect=RuntimeError('模拟写入失败')):
+        with patch.object(self.knowledge, 'save_bm25', side_effect=RuntimeError('模拟写入失败')):
             with self.assertRaisesRegex(RuntimeError, '模拟写入失败'):
                 self.build(force_rebuild=True)
         self.assertTrue(self.build()['rebuilt'])
@@ -177,10 +178,13 @@ class RegressionTests(unittest.TestCase):
         self.assert_cache_size(1)
 
     def test_default_and_all_pages_extraction(self):
-        """默认保持前 11 页；None 允许提取第 12 页及以后。"""
-        self.create_pdf(['apple'] * 12)
-        self.assertEqual(len(self.service.get_pdf_text(self.pdf)), 11)
-        self.assertEqual(len(self.service.get_pdf_text(self.pdf, max_pages=None)), 12)
+        """默认统一为前 30 页；显式 11 页和全文仍保持原语义。"""
+        self.create_pdf(['apple'] * 31)
+        self.assertEqual(len(self.pdf_reader.get_pdf_text(self.pdf)), 30)
+        self.assertEqual(len(self.pdf_reader.get_pdf_text(self.pdf, max_pages=11)), 11)
+        self.assertEqual(len(self.pdf_reader.get_pdf_text(self.pdf, max_pages=None)), 31)
+        self.assertEqual(self.service.building_data(self.pdf, self.index, TinyModel())['actual_pages'], 30)
+        self.assertEqual(self.service.get_knowledge_base_status(self.pdf, self.index)['actual_pages'], 30)
 
     def test_invalid_page_limit_is_rejected_before_writing(self):
         """页数参数必须为正整数或 None，非法值不产生缓存。"""
@@ -210,7 +214,7 @@ class RegressionTests(unittest.TestCase):
     def test_answer_question_forwards_build_settings(self):
         """问答真实执行建库与融合检索，只有外部回答服务使用替身。"""
         self.create_pdf(['apple', 'banana'])
-        with patch.object(self.service, 'building_data', wraps=self.service.building_data) as build:
+        with patch.object(self.knowledge, 'build_knowledge_base', wraps=self.knowledge.build_knowledge_base) as build:
             result = self.service.answer_question(
                 self.pdf, str(self.index), 'apple', TinyModel(),
                 max_pages=1, force_rebuild=True)
@@ -330,7 +334,7 @@ class RegressionTests(unittest.TestCase):
     def test_status_distinguishes_unfinished_corrupt_and_unavailable(self):
         """遗留 building 记录表示未完成，不冒充正在后台构建或已就绪。"""
         self.create_pdf(['apple'])
-        with patch.object(self.service, 'save_bm25', side_effect=RuntimeError('写入中断')):
+        with patch.object(self.knowledge, 'save_bm25', side_effect=RuntimeError('写入中断')):
             with self.assertRaises(RuntimeError):
                 self.build()
         self.assertEqual(self.service.get_knowledge_base_status(
@@ -393,7 +397,7 @@ class RegressionTests(unittest.TestCase):
         self.output.write_text(json.dumps(self.rows), encoding='utf-8')
         with patch.object(self.evaluation, 'query_dense_text_top_k', return_value=([], [], [0, 1])), \
              patch.object(self.evaluation, 'query_bm25_top_k', return_value=([], [], [0, 1])), \
-             patch.object(self.evaluation, 'RRF_top_k_query_indece', return_value=([0, 1], [])):
+             patch.object(self.evaluation, 'hybrid_search', return_value=([0, 1], [])):
             result = self.evaluation.evaluate_model(
                 [{'question': 'banana', 'gold_page': 2}], str(self.index),
                 self.output, TinyModel(), None, final_k=2)
@@ -402,13 +406,8 @@ class RegressionTests(unittest.TestCase):
             self.assertEqual(result[0][f'{method}_hit_at_1'], 0)
 
     def test_eval_dataset_path_is_portable(self):
-        """只执行入口里的路径赋值，确认评测集不依赖启动目录。"""
-        tree = ast.parse((ROOT / 'eval.py').read_text(encoding='utf-8'))
-        assignment = next(n for n in ast.walk(tree) if isinstance(n, ast.Assign)
-                          and any(isinstance(t, ast.Name) and t.id == 'eval_set_path' for t in n.targets))
-        scope = {'Path': Path, '__file__': str(ROOT / 'eval.py')}
-        exec(compile(ast.Module(body=[assignment], type_ignores=[]), 'eval.py', 'exec'), scope)
-        dataset = Path(scope['eval_set_path'])
+        """通过公开配置入口定位题集，不依赖源码中的变量位置。"""
+        dataset = self.evaluation.get_eval_set_path()
         self.assertTrue(dataset.is_file())
         self.assertTrue(self.evaluation.load_eval_questions(dataset))
 
@@ -419,6 +418,26 @@ class RegressionTests(unittest.TestCase):
         self.assertNotIn('，', tokens)
         self.assertIn('apple', tokens)
         self.assertIn('banana', tokens)
+
+    def test_pdf_processing_uses_the_replaceable_chunker_interface(self):
+        """只替换切块模块，PDF 解析和来源字段继续工作。"""
+        import chunker
+        self.create_pdf(['apple'])
+        with patch.object(chunker, 'split_text', return_value=['新的切块结果']):
+            chunks = self.pdf_reader.get_pdf_text(self.pdf)
+        self.assertEqual(chunks, [{'file_name': 'sample.pdf', 'page_id': 0,
+                                  'page_number': 1, 'chunk_id': 1, 'text': '新的切块结果'}])
+
+    def test_hybrid_search_uses_the_replaceable_fusion_interface(self):
+        """只替换融合模块，原来的检索调用入口继续使用新结果。"""
+        import fusion
+        self.create_pdf(['apple', 'banana'])
+        self.build()
+        query = importlib.import_module('query')
+        with patch.object(fusion, 'fuse_rankings', return_value=([1], [0.99])):
+            result = query.RRF_top_k_query_indece(
+                'apple', str(self.index), self.output, TinyModel(), self.sparse.load_bm25(self.pdf))
+        self.assertEqual(result, ([1], [0.99]))
 
 
 if __name__ == '__main__':

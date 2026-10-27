@@ -5,11 +5,15 @@ from conversation_lock import conversation_lock
 
 
 def metadata_path(history_path):
+    # 信息位置
+    # 1. 由聊天文件名得到旁边的会话信息文件。
     return Path(history_path).with_suffix('.meta.json')
 
 
 def load_metadata(history_path):
-    """旧会话没有元数据时返回空字典；损坏信息不能静默覆盖。"""
+    # 读取信息
+    # 1. 旧记录没有信息文件时返回空字典。
+    # 2. 读取已保存的信息，损坏时明确报错，避免覆盖。
     try:
         data = json.loads(metadata_path(history_path).read_text(encoding='utf-8'))
     except FileNotFoundError:
@@ -22,7 +26,9 @@ def load_metadata(history_path):
 
 
 def save_metadata(history_path, metadata):
-    """同目录临时文件写完再替换，避免中断留下半份元数据。"""
+    # 保存信息
+    # 1. 先把完整信息写入同目录临时文件。
+    # 2. 写完再替换正式文件，避免半份记录。
     path = metadata_path(history_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + '.tmp')
@@ -31,6 +37,10 @@ def save_metadata(history_path, metadata):
 
 
 def read_messages(history_path):
+    # 读取记录
+    # 1. 逐行读取原 JSONL，忽略空行。
+    # 2. 检查消息基本格式，并按原顺序返回。
+    # 3. 遇到损坏内容时给出行号，不修改原文件。
     path = Path(history_path)
     if not path.exists():
         return []
@@ -51,6 +61,8 @@ def read_messages(history_path):
 
 
 def append_message(history_path, message):
+    # 追加消息
+    # 1. 创建需要的目录，把一条消息追加为一行 JSON。
     path = Path(history_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open('a', encoding='utf-8') as stream:
@@ -58,18 +70,24 @@ def append_message(history_path, message):
 
 
 def first_question(messages):
-    """完整首问作为标题请求的输入，不截取成显示标题。"""
+    # 取得首问
+    # 1. 返回首条非空用户问题的完整内容，供标题提示词使用。
     return next((row['content'] for row in messages
                  if row.get('role') == 'user' and row.get('content', '').strip()), '')
 
 
 def bind_document(history_path, document):
+    # 绑定资料
+    # 1. 取得会话锁，再保存文档和读取范围。
     with conversation_lock(history_path):
         return _bind_document(history_path, document)
 
 
 def _bind_document(history_path, document):
-    """有消息的会话绑定固定资料，避免切换后混用旧引用。"""
+    # 保存绑定
+    # 1. 检查读取页数。
+    # 2. 已有消息时保留原绑定，换资料需要新建会话。
+    # 3. 把设置保存到额外信息，不修改聊天消息。
     metadata = load_metadata(history_path)
     limit = document['max_pages']
     if limit is not None and (type(limit) is not int or limit <= 0):
@@ -83,7 +101,10 @@ def _bind_document(history_path, document):
 
 
 def list_conversations(directory, title_length=24):
-    """只显示已生成标题，不调用 API；旧记录显示待生成标题，ID 始终不变。"""
+    # 对话列表
+    # 1. 遍历聊天文件，读取已保存的标题。
+    # 2. 旧会话显示待生成标题，浏览列表不请求模型。
+    # 3. 按聊天文件修改时间排序，同时间再按 ID 排序。
     conversations = []
     for path in Path(directory).glob('*.jsonl'):
         try:

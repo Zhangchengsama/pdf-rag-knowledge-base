@@ -18,6 +18,7 @@ class TitleTests(unittest.TestCase):
         with patch.dict(os.environ, {'DEEPSEEK_API_KEY': 'offline-test'}), \
                 patch('openai.OpenAI', return_value=client):
             spec.loader.exec_module(module)
+        module.get_client = lambda: client
         return module, client
 
     def test_title_uses_first_question_as_prompt_and_normalizes_model_output(self):
@@ -34,3 +35,16 @@ class TitleTests(unittest.TestCase):
         module, _ = self.load_llm(None)
         with self.assertRaises(ValueError):
             module.generate_title('完整原问题')
+
+    def test_answer_request_preserves_original_messages_and_settings(self):
+        module, client = self.load_llm('模型回答')
+        self.assertEqual(module.ask_llm('原始提示词'), '模型回答')
+        self.assertEqual(client.chat.completions.create.call_args.kwargs, {
+            'model': 'deepseek-flash',
+            'messages': [
+                {'role': 'system', 'content': '你是一个教材问答助手。请仅根据用户提供的参考资料回答问题。'
+                 '如果资料不足以回答，请明确说明资料不足，不要自行补充事实。'},
+                {'role': 'user', 'content': '原始提示词'}],
+            'temperature': 0.2, 'max_tokens': 500, 'stream': False,
+            'extra_body': {'thinking': {'type': 'disabled'}},
+        })

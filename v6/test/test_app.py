@@ -1,5 +1,4 @@
 """原生 AppTest 使用合成 PDF/聊天记录，隔离模型下载与外部 API。"""
-import ast
 import importlib
 import json
 import os
@@ -16,6 +15,22 @@ from test_regressions import TinyModel
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+
+
+def render_test_app(settings):
+    from ui import run_web
+    run_web(settings)
+
+
+def render_test_entry(settings):
+    import runpy
+    import sys
+    import streamlit as st
+    from unittest.mock import patch
+    with patch('config.load_settings', return_value=settings), \
+            patch.object(sys, 'argv', ['main.py', '--web']):
+        runpy.run_module('main', run_name='__main__')
+    st.caption('入口执行完成')
 
 
 class OfflineModel(TinyModel):
@@ -52,17 +67,10 @@ class AppTests(unittest.TestCase):
                     sys.modules[name] = module
         self.addCleanup(restore_modules)
 
-        # 仅替换测试副本的路径和输入配置，页面及服务执行真实代码。
-        tree = ast.parse((ROOT / 'app.py').read_text(encoding='utf-8'))
-        values = {'road': f'Path({str(self.pdf)!r})', 'index_path': repr(str(self.index)),
-                  'max_pages': '30', 'force_rebuild': 'False'}
-        for node in tree.body:
-            if (isinstance(node, ast.Assign) and len(node.targets) == 1
-                    and isinstance(node.targets[0], ast.Name)
-                    and node.targets[0].id in values):
-                node.value = ast.parse(values[node.targets[0].id], mode='eval').body
-        tree.body.insert(0, ast.parse(f'__file__ = {str(self.directory / "app.py")!r}').body[0])
-        self.app = AppTest.from_string(ast.unparse(ast.fix_missing_locations(tree)), default_timeout=10)
+        # 注入配置，不改写页面源码或页面的私有全局变量。
+        from config import load_settings
+        self.settings = load_settings(base_dir=self.directory, pdf_path=self.pdf, index_path=self.index)
+        self.app = AppTest.from_function(render_test_app, args=(self.settings,), default_timeout=10)
 
     def run_app(self):
         self.app.run()
@@ -95,6 +103,12 @@ class AppTests(unittest.TestCase):
         self.assertIn('尚未建库', text)
         self.assertIn('文本块数：未统计', text)
         self.assertEqual(self.prompts, [])
+
+    def test_main_script_returns_normally_in_streamlit_worker(self):
+        self.app = AppTest.from_function(render_test_entry, args=(self.settings,), default_timeout=3)
+        app = self.run_app()
+        self.assertIn('入口执行完成', [item.value for item in app.caption])
+        self.assertEqual(len(app.chat_input), 1)
 
     def test_chat_history_sources_titles_and_recent_order_survive_reruns(self):
         older_id, newer_id = 'a' * 32, 'b' * 32

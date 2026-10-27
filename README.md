@@ -1,6 +1,6 @@
 # 题一：PDF RAG 知识库
 
-当前开发入口是 `v6/app.py`。检索流程为 PDF 文本提取、按字符切块、SentenceTransformer 编码、HNSW 与 BM25 检索、加权 RRF 融合、DeepSeek 回答。
+统一启动入口是 `v6/main.py`，网页函数放在 `v6/ui.py`，终端问答放在 `v6/cli.py`。检索流程为 PDF 文本提取、按字符切块、SentenceTransformer 编码、HNSW 与 BM25 检索、加权 RRF 融合、DeepSeek 回答。
 
 ## 版本管理约定
 
@@ -17,7 +17,7 @@
 ```powershell
 git status
 git diff
-git add -- v6/app.py
+git add -- v6/ui.py
 git diff --cached
 git commit -m "改进历史对话展示"
 git log --oneline --decorate
@@ -50,6 +50,39 @@ git config user.email "你的邮箱"
 
 默认 PDF 和索引仍使用原来的仓库外路径。上传文件保存到 `v6/data/documents/`，新选择文档的索引保存在 `v6/data/indexes/`；这两个目录和全部会话元数据均已排除。PDF 同名的文本 JSON、向量、BM25 缓存仍写在 PDF 同目录，不要将生成数据与源码混放，也不要统一忽略所有 JSON。
 
+## v6 文件分工
+
+文件保持平铺。入口只安排调用顺序，各功能写成函数；函数开头用“功能短词＋编号步骤”说明实现。
+
+| 文件 | 负责什么 |
+| --- | --- |
+| `main.py` | 解析启动参数，分派网页或终端模式 |
+| `ui.py` | 页面控件、会话选择、消息和状态展示 |
+| `cli.py` | 终端输入问题、输出回答 |
+| `config.py` | 默认参数、目录及只读 `Settings` 配置 |
+| `get_pdf.py` | 逐页解析 PDF 和来源信息 |
+| `chunker.py` | 按字符切块，固定 `split_text` 接口 |
+| `embedding.py` | 按需加载嵌入模型、逐块编码 |
+| `dense.py` | HNSW 创建和稠密召回 |
+| `sparse.py` | 分词、BM25 创建和关键词召回 |
+| `fusion.py` | 纯加权 RRF，固定 `fuse_rankings` 接口 |
+| `query.py` | 编排两路召回并调用融合函数 |
+| `prompt.py` | 问答提示词格式化 |
+| `cache_store.py` | 文本、向量、BM25、索引和建库记录的读写 |
+| `knowledge_base.py` | 建库、缓存复用和只读状态判断 |
+| `rag_service.py` | 单次问答流程和旧业务入口转发 |
+| `conversations.py` | 消息与会话信息存取、列表和绑定 |
+| `chat_workflow.py` | 可恢复请求、回答重试和标题流程 |
+| `document_settings.py` | 文档选择校验、独立索引路径及上传保存 |
+| `conversation_lock.py` | 会话和共享 PDF 的互斥锁 |
+| `progress.py` | 阶段状态通知与耗时记录 |
+| `LLM.py` | 按需创建 API 客户端，生成回答和标题 |
+| `eval.py` | 检索评测及结果报告 |
+
+修改切块算法时编辑 `chunker.split_text`，输入文本和切块参数，返回有序字符串列表。修改融合算法时编辑 `fusion.fuse_rankings`，输入两路有序下标，返回有序下标和分数。JSON 第 i 块、向量第 i 行、BM25 第 i 条和 HNSW 标签 i 必须保持对应。
+
+更换切块方法或嵌入模型后，继续显式设置 `force_rebuild=True` 重建，不增加算法版本指纹或自动迁移。只改融合公式时可直接重新评测。`get_pdf.split_text`、`get_pdf.save_to_json`、`query.RRF_top_k_query_indece` 和原来的建库、检索、提示词调用仍可使用。
+
 ## v6 界面与兼容性
 
 - 完整首个问题交给独立的大模型提示词生成短标题，不直接截取或复述原问题。新会话首次回答成功后额外请求一次标题并持久保存；刷新和后续提问不重复生成。标题失败显示“待生成标题”，可单独重试，不重新生成回答。旧会话浏览时不自动调用 API，可点击“生成对话标题”。
@@ -69,10 +102,19 @@ git config user.email "你的邮箱"
 本机使用现有环境 `D:/miniforge3/envs/aip1`，没有新增安装。文件锁复用已安装的 `filelock 3.32.6`；其他环境需要 `filelock>=3.32.6`，以支持保留锁文件与禁用软锁回退。在仓库根目录运行：
 
 ```powershell
-& 'D:\miniforge3\envs\aip1\python.exe' -m streamlit run v6/app.py
+& 'D:\miniforge3\envs\aip1\python.exe' v6/main.py
 ```
 
-提问依赖本地缓存的嵌入模型；回答和标题生成使用环境变量 `DEEPSEEK_API_KEY`。API 设置 60 秒超时参数并关闭 SDK 自动重试，由页面提供明确的手动重试。前端默认读取前 30 页，可在页面更改；命令行及评测入口仍默认读取前 11 页。
+终端问答和独立检索评测：
+
+```powershell
+& 'D:\miniforge3\envs\aip1\python.exe' v6/main.py --cli
+& 'D:\miniforge3\envs\aip1\python.exe' v6/eval.py
+```
+
+旧 `app.py` 已移除。默认启动器通过当前 Python 解释器调用 Streamlit，再使用内部 `--web` 标记运行同一个入口。普通导入模块不会启动服务、读取终端输入、加载模型或创建 API 客户端。
+
+提问依赖本地缓存的嵌入模型；回答和标题生成使用环境变量 `DEEPSEEK_API_KEY`。API 设置 60 秒超时参数并关闭 SDK 自动重试，由页面提供明确的手动重试。网页、命令行、评测和省略页数的业务调用统一默认前 30 页；显式传入其他正整数或 `None` 继续有效。配置集中在 `config.py`，测试或其他调用方可通过 `load_settings(...)` 注入目录和设置，不改页面源码。
 
 离线回归检查：
 

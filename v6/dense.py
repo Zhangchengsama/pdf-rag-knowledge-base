@@ -1,153 +1,78 @@
-from sentence_transformers import SentenceTransformer
-import json
-import hnswlib
+"""稠密索引和向量召回，编码及文件读写交给对应模块。"""
 from pathlib import Path
+import hnswlib
 import numpy as np
+import cache_store
+import embedding
+from config import FINAL_K, INDEX_M, INDEX_SPACE, SEARCH_EF
 
 
-def cos_similarity(v1,v2):
-    """计算两个非零向量的余弦相似度，值越大表示方向越接近。"""
-    return v1.dot(v2)/(np.linalg.norm(v1)*np.linalg.norm(v2))
+def cos_similarity(v1, v2):
+    # 余弦相似度
+    # 1. 用点积除以两个非零向量的长度乘积。
+    return v1.dot(v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
+
 
 def get_embedding(text, model):
-    """用调用方提供的模型编码文本；建库与查询应使用同一模型。"""
-    return model.encode(text)
+    # 兼容编码
+    # 1. 保留旧入口，交给编码模块生成向量。
+    return embedding.get_embedding(text, model)
+
 
 def get_similarity(input_embedding, item_embedding):
-    """计算输入文本与已有文本的相似度"""
-    sim_A_B = cos_similarity(input_embedding, item_embedding)
-    return sim_A_B
+    # 比较向量
+    # 1. 返回两个向量的余弦相似度。
+    return cos_similarity(input_embedding, item_embedding)
 
-def save_np_embedding(output_path:Path, model):
-    """获得嵌入向量并保存PDF文本数据的嵌入向量到.npy文件
 
-    output_path: 已保存的PDF文本数据的JSON文件路径
+def save_np_embedding(output_path: Path, model):
+    # 编码入库
+    # 1. 读取文本块，按原顺序逐块编码。
+    # 2. 保存 float32 向量矩阵，并返回给索引构建流程。
+    vectors = embedding.encode_chunks(cache_store.load_chunks(output_path), model)
+    cache_store.save_vectors(vectors, output_path)
+    return vectors
 
-    model: 用于生成嵌入的模型
-    """
-    data = []
-    item_embedding = []
 
-    with open(output_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+def build_dense_index(vectors, space=INDEX_SPACE):
+    # 创建索引
+    # 1. 根据向量列数确定维度。
+    # 2. 使用原来的 M 参数创建 HNSW。
+    # 3. 用从 0 开始的位置作为标签，保持与文本列表一致。
+    index = hnswlib.Index(space=space, dim=vectors.shape[1])
+    index.init_index(max_elements=vectors.shape[0], M=INDEX_M)
+    index.add_items(vectors, np.arange(vectors.shape[0]))
+    return index
 
-    for item in data:
-        item_embedding.append(get_embedding(item["text"], model).tolist())
 
-    # 第 i 行向量对应 JSON 的第 i 个文本块，后续通过这个顺序回查原文。
-    embeddings = np.array(item_embedding, dtype=np.float32)
+def save_dense_index(output_path: Path, index_path: Path, model, space=INDEX_SPACE):
+    # 保存索引
+    # 1. 复用旧入口生成并保存向量。
+    # 2. 创建 HNSW，再交给缓存模块保存。
+    vectors = save_np_embedding(output_path, model)
+    cache_store.save_dense_index(build_dense_index(vectors, space), index_path)
 
-    np.save(output_path.with_suffix(".npy"), embeddings) 
 
-    return embeddings
-
-def save_dense_index(output_path: Path, index_path: Path, model, space: str = "cosine"):
-    """保存稠密向量索引到指定路径
-
-    output_path: 已保存的PDF文本数据的JSON文件路径
-
-    index_path: 保存索引的路径
-
-    model: 用于生成嵌入的模型
-
-    space: 距离度量空间(默认值为 "cosine")
-    """
-
-    embeddings = save_np_embedding(output_path, model)
-
-    # 向量列数就是嵌入维度，加载和创建 HNSW 索引时必须一致。
-    dim = embeddings.shape[1]
-
-    index = hnswlib.Index(
-        space=space,
-        dim=dim
-        )
-
-    index.init_index(
-        max_elements=embeddings.shape[0],#可以改成可变参数
-        M=16,  # HNSW 图的连接数参数，影响内存占用与召回效果。
-        )
-
-    # 标签从 0 开始，是 JSON 列表下标，不是从 1 开始的 chunk_id。
-    ids = np.arange(embeddings.shape[0])
-    
-    index.add_items(
-        embeddings,
-        ids
-    )
-
-    index.save_index(str(index_path))
-
-def query_dense_text_top_k(text_input, index_path: Path, output_path:Path, model, k=5, ef=50 ,space: str = "cosine", data=None):
-    """查询文本与已保存的PDF文本数据的相似度
-
-    text_input: 用户输入的文本字符串
-
-    index_path: 已保存的索引文件路径
-
-    output_path: 已保存的PDF文本数据的JSON文件路径
-
-    model: 用于生成嵌入的模型
-
-    k: 返回最相似的k个结果
-
-    ef: HNSW索引的ef参数
-
-    space: 距离度量空间
-
-    data: 可选的完整文本块列表；省略时从 output_path 加载
-    
-    return: 返回按顺序排列的文本(top_k_texts)，相似度得分(top_k_scores)和索引列表(top_k_indices)
-    """
-
-    results = []
-
-    # 调用方可传入本次问答已加载的文本；旧调用仍从文件读取。
-    if data is None:
-        with open(output_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-    embeddings = np.load(output_path.with_suffix(".npy"))
-
-    # 向量列数就是嵌入维度，加载和创建 HNSW 索引时必须一致。
-    dim = embeddings.shape[1]
-
-    index = hnswlib.Index(
-        space=space,
-        dim=dim,
-        )
-
-    index.load_index(index_path)
-
-    # HNSW 不能请求超过索引容量的结果；小型知识库按实际块数返回。
+def query_dense_text_top_k(text_input, index_path: Path, output_path: Path, model,
+                           k=FINAL_K, ef=SEARCH_EF, space=INDEX_SPACE, data=None):
+    # 向量召回
+    # 1. 读取或复用文本，并加载对应的向量维度和索引。
+    # 2. 按索引容量限制 k，再编码问题并查询。
+    # 3. 将距离转成相似度，沿原排名返回文本、分数和下标。
+    data = cache_store.load_chunks(output_path, data)
+    vectors = cache_store.load_vectors(output_path)
+    index = cache_store.load_dense_index(index_path, vectors.shape[1], space)
     k = min(k, index.get_current_count())
     if k <= 0:
         return [], [], []
-
-    # ef 控制搜索候选范围；通常至少取 k，越大越偏向召回而非速度。
     index.set_ef(max(ef, k))
-
-    input_embedding = get_embedding(text_input,model)
-
-    labels, distances = index.knn_query(input_embedding, k=k)
-
-    # 单条查询仍返回二维结果，取第 0 行得到这一问题的标签和距离。
-    ids = labels[0]
-    dists = distances[0]
-
-    for i, dist in zip(ids, dists):
-        chunk = data[i]
-        # cosine 空间下距离为 1 - 余弦相似度，此处转换为越大越相关的分数。
-        similarity = 1 - dist
-        results.append((similarity, chunk , i))
-
-    results.sort(key=lambda x: x[0], reverse=True)
-    top_k_results = results[:k]
-
-    if top_k_results:
-        top_k_texts = [item['text'] for _, item , _ in top_k_results]
-        top_k_scores = [similarity for similarity, _ , _ in top_k_results]
-        top_k_indices = [index for _, _, index in top_k_results]
-        return top_k_texts, top_k_scores, top_k_indices
-    else:
-        return None, 0 , 0
+    labels, distances = index.knn_query(embedding.get_embedding(text_input, model), k=k)
+    results = [(1 - distance, data[position], position)
+               for position, distance in zip(labels[0], distances[0])]
+    results.sort(key=lambda item: item[0], reverse=True)
+    selected = results[:k]
+    if selected:
+        return ([item["text"] for _, item, _ in selected],
+                [score for score, _, _ in selected],
+                [position for _, _, position in selected])
+    return None, 0, 0

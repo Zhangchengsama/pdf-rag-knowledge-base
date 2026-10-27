@@ -1,24 +1,28 @@
+"""大模型调用；导入时不检查密钥或创建客户端。"""
 import os
-from openai import OpenAI
+from functools import lru_cache
+from config import (ANSWER_MAX_TOKENS, LLM_BASE_URL, LLM_MODEL, LLM_TEMPERATURE,
+                    LLM_TIMEOUT, TITLE_MAX_TOKENS)
 
 
-# 导入模块时即检查环境变量并创建客户端；不在代码中保存密钥。
-api_key = os.environ.get("DEEPSEEK_API_KEY")
-
-if not api_key:
-    raise ValueError("未检测到 DEEPSEEK_API_KEY")
-
-
-client = OpenAI(
-    api_key=api_key,
-    base_url="https://api.deepseek.com",
-    timeout=60.0,
-    max_retries=0,  # 失败由页面明确提示并手动重试，不在 SDK 内静默重发。
-)
+@lru_cache(maxsize=1)
+def get_client():
+    # 获取客户端
+    # 1. 实际生成回答或标题时再检查密钥。
+    # 2. 创建可复用的客户端，保留超时和手动重试规则。
+    api_key = os.environ.get("DEEPSEEK_API_KEY")
+    if not api_key:
+        raise ValueError("未检测到 DEEPSEEK_API_KEY")
+    from openai import OpenAI
+    return OpenAI(api_key=api_key, base_url=LLM_BASE_URL,
+                  timeout=LLM_TIMEOUT, max_retries=0)
 
 
 def ask_llm(prompt):
-    """把含问题和检索资料的提示词发送给 DeepSeek，返回首个候选回答文本。"""
+    # 生成回答
+    # 1. 将原来的教材约束和本次检索提示词组成请求。
+    # 2. 使用原模型参数等待完整回答。
+    # 3. 返回首个候选的文本。
 
     # system 约束回答范围；user 携带本次问题及检索上下文。
     messages = [
@@ -36,11 +40,11 @@ def ask_llm(prompt):
         }
     ]
 
-    response = client.chat.completions.create(
-        model="deepseek-flash",
+    response = get_client().chat.completions.create(
+        model=LLM_MODEL,
         messages=messages,
-        temperature=0.2,  # 较低采样温度，减少回答的随机性。
-        max_tokens=500,  # 单次生成上限，较长回答可能被截断。
+        temperature=LLM_TEMPERATURE,  # 较低采样温度，减少回答的随机性。
+        max_tokens=ANSWER_MAX_TOKENS,  # 单次生成上限，较长回答可能被截断。
         stream=False,  # 等待完整响应后一次性返回。
         extra_body={
             "thinking": {
@@ -55,9 +59,12 @@ def ask_llm(prompt):
 
 
 def generate_title(first_question):
-    """将完整首问作为独立提示词输入，生成短标题，不执行教材问答。"""
-    response = client.chat.completions.create(
-        model="deepseek-flash",
+    # 生成短标题
+    # 1. 把完整首问和标题规则组成独立请求。
+    # 2. 取出模型返回的标题，去掉多余前缀和引号。
+    # 3. 检查空结果，并保留原来的长度上限。
+    response = get_client().chat.completions.create(
+        model=LLM_MODEL,
         messages=[
             {"role": "system", "content": (
                 "你负责为知识库对话生成简短中文标题。"
@@ -67,8 +74,8 @@ def generate_title(first_question):
             )},
             {"role": "user", "content": f"请为以下首个问题生成对话标题：\n{first_question}"},
         ],
-        temperature=0.2,
-        max_tokens=64,
+        temperature=LLM_TEMPERATURE,
+        max_tokens=TITLE_MAX_TOKENS,
         stream=False,
         extra_body={"thinking": {"type": "disabled"}},
     )

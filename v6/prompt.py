@@ -1,23 +1,23 @@
-from query import top_k_query_indice2chunk
+"""问答提示词；不加载检索模块或模型。"""
+from cache_store import select_chunks
 
-def get_prompt(text_input:str, top_k_indices, output_path, data=None):
-    """按检索排名拼接问题、文件名、PDF 页序和文本，返回大模型提示词。
 
-    top_k_indices 是 JSON 列表下标；output_path 指向保存文本块的 JSON。
-    可选 data 为已加载的完整文本块列表；省略时沿用原文件读取方式。
-    """
-    chunks = top_k_query_indice2chunk(top_k_indices, output_path, data=data)
-    return format_prompt(text_input, chunks)
+def get_prompt(text_input: str, top_k_indices, output_path, data=None):
+    # 兼容提示词
+    # 1. 按原来的路径和下标取得来源。
+    # 2. 调用纯格式化函数，旧的三参数调用仍可使用。
+    return format_prompt(text_input, select_chunks(top_k_indices, output_path, data))
 
 
 def format_prompt(text_input, chunks):
-    """用已选出的来源拼接提示词，保留原有顺序、文字和换行。"""
-    # 不包含历史对话；与旧 get_prompt 生成的字符串逐字符一致。
-    s =f"用户问题：{text_input}\n以下是参考资料："
-    for item in chunks:
-        s+=f"[{item['file_name']}]\n"
-        s+=f"页码：{item['page_number']}\n"
-        s+=f"文本：{item['text']}\n"
-        s+="\n"
-
-    return s
+    # 拼接资料
+    # 1. 写入当前问题，不加入历史对话。
+    # 2. 沿检索排名拼接文件名、页码和原文。
+    # 3. 保留原来的文字、空行和来源顺序。
+    result = f"用户问题：{text_input}\n以下是参考资料："
+    for chunk in chunks:
+        result += f"[{chunk['file_name']}]\n"
+        result += f"页码：{chunk['page_number']}\n"
+        result += f"文本：{chunk['text']}\n"
+        result += "\n"
+    return result
