@@ -19,6 +19,8 @@ htmlcov/
 
 # Private conversation history and local scratch data
 **/data/conversations/
+/v6/data/documents/
+/v6/data/indexes/
 /chatdata/
 
 # Source documents, downloaded models, and generated retrieval caches
@@ -28,6 +30,7 @@ htmlcov/
 *.bin
 *.bin.meta.json
 *.build.json
+*.rag.lock
 /models/
 /artifacts/cache/
 *.log

@@ -5,6 +5,7 @@ from dense import save_dense_index
 from sparse import build_bm25, save_bm25 ,load_bm25 ,build_corpus
 from query import RRF_top_k_query_indece ,top_k_query_indice2chunk
 from pathlib import Path
+from progress import track_stage
 
 
 def _build_layout(road, index_path, max_pages):
@@ -119,40 +120,41 @@ def building_data(road, index_path, model, max_pages=11, force_rebuild=False):
 
 
 def answer_question(road, index_path, text_input, model, max_pages=11, force_rebuild=False,
-                    on_build_status=None):
+                    on_build_status=None, on_progress=None):
     """完成单次问答，返回 {answer: 回答文本, sources: 检索文本块列表}。
 
     model 由入口复用；其余文件及 BM25 对象在当前调用中准备或加载。
     max_pages / force_rebuild 透传建库设置，不改变回答与来源的返回格式。
     可选 on_build_status 回调接收建库结果、块数和文件版本；旧调用无需传入。
+    可选 on_progress 回调接收阶段名称、状态和 elapsed_seconds，不改变结果格式。
     """
 
-    build_state = building_data(road, index_path=index_path, model=model,
-                                max_pages=max_pages, force_rebuild=force_rebuild)
+    with track_stage('knowledge_base', on_progress):
+        build_state = building_data(road, index_path=index_path, model=model,
+                                    max_pages=max_pages, force_rebuild=force_rebuild)
 
-    road=Path(road)
-    output_path = road.with_suffix(".json")
-    # 建库完成后读取一次，本次检索、提示词和来源展示共用同一份文本。
-    with output_path.open("r", encoding="utf-8") as f:
-        data = json.load(f)
-    if on_build_status is not None:
-        cache_paths = (output_path, road.with_suffix(".npy"),
-                       road.with_suffix(".pkl"), Path(index_path))
-        on_build_status(dict(build_state, chunk_count=len(data),
-                             cache_signature=_cache_signature(cache_paths)))
-
-    bm25 = load_bm25(road)
-
-    # 两路各召回 20 块，按加权 RRF 融合后选出 5 块交给大模型。
-    top_k_indices, top_k_scores = RRF_top_k_query_indece(text_input, index_path, output_path, model, bm25, c=60, candidate_k=20, final_k=5, ef=50, space="cosine", data=data)
-
-    # 来源与提示词使用同一组下标，保证页面展示的资料对应本次检索。
-    chunks = top_k_query_indice2chunk(top_k_indices, output_path, data=data)
-    prompt = format_prompt(text_input, chunks)
+    with track_stage('retrieval', on_progress):
+        road = Path(road)
+        output_path = road.with_suffix(".json")
+        # 建库完成后读取一次，本次检索、提示词和来源展示共用同一份文本。
+        with output_path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        if on_build_status is not None:
+            cache_paths = (output_path, road.with_suffix(".npy"),
+                           road.with_suffix(".pkl"), Path(index_path))
+            on_build_status(dict(build_state, chunk_count=len(data),
+                                 cache_signature=_cache_signature(cache_paths)))
+        bm25 = load_bm25(road)
+        # 两路各召回 20 块，按加权 RRF 融合后选出 5 块交给大模型。
+        top_k_indices, top_k_scores = RRF_top_k_query_indece(text_input, index_path, output_path, model, bm25, c=60, candidate_k=20, final_k=5, ef=50, space="cosine", data=data)
+        # 来源与提示词使用同一组下标，保证页面展示的资料对应本次检索。
+        chunks = top_k_query_indice2chunk(top_k_indices, output_path, data=data)
+        prompt = format_prompt(text_input, chunks)
 
     # 仅生成回答时才加载 API 客户端；独立建库和评测不需要大模型密钥。
-    from LLM import ask_llm
-    answer = ask_llm(prompt)
+    with track_stage('generation', on_progress):
+        from LLM import ask_llm
+        answer = ask_llm(prompt)
     result = {"answer":answer,
               "sources":chunks
               }

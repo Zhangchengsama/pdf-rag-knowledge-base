@@ -359,6 +359,26 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(updates[0]['cache_signature'],
                          self.service.get_knowledge_base_status(self.pdf, self.index)['cache_signature'])
 
+    def test_progress_reports_stages_and_failure_without_changing_result(self):
+        """阶段事件包含耗时；外部生成失败时保留原异常与失败阶段。"""
+        self.create_pdf(['apple', 'banana'])
+        events = []
+        result = self.service.answer_question(
+            self.pdf, str(self.index), 'apple', TinyModel(), on_progress=events.append)
+        self.assertEqual(result['answer'], 'offline')
+        self.assertEqual(set(result), {'answer', 'sources'})
+        self.assertEqual([(e['stage'], e['status']) for e in events], [
+            ('knowledge_base', 'running'), ('knowledge_base', 'complete'),
+            ('retrieval', 'running'), ('retrieval', 'complete'),
+            ('generation', 'running'), ('generation', 'complete')])
+        self.assertTrue(all(event['elapsed_seconds'] >= 0 for event in events))
+        events.clear()
+        with patch.object(sys.modules['LLM'], 'ask_llm', side_effect=TimeoutError('timeout')):
+            with self.assertRaises(TimeoutError):
+                self.service.answer_question(
+                    self.pdf, str(self.index), 'apple', TinyModel(), on_progress=events.append)
+        self.assertEqual((events[-1]['stage'], events[-1]['status']), ('generation', 'failed'))
+
     def test_eval_uses_final_k_without_global(self):
         """作为模块调用评估函数时不需要预先设置全局 k。"""
         self.check_evaluation()
