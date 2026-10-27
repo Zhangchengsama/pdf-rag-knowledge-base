@@ -4,7 +4,7 @@ from dense import query_dense_text_top_k
 from sparse import query_bm25_top_k
 
 
-def RRF_top_k_query_indece(text_input, index_path, output_path, model, bm25, c=60 , candidate_k=20, final_k=5, ef=50, space="cosine", dense_weight=0.8, sparse_weight=1.2):
+def RRF_top_k_query_indece(text_input, index_path, output_path, model, bm25, c=60 , candidate_k=20, final_k=5, ef=50, space="cosine", dense_weight=0.8, sparse_weight=1.2, data=None):
     """使用加权RRF算法进行查询，权重相等时与普通RRF的排序一致
 
     text_input: 用户输入的文本字符串
@@ -31,11 +31,15 @@ def RRF_top_k_query_indece(text_input, index_path, output_path, model, bm25, c=6
 
     sparse_weight: BM25 排名分数的权重，默认 1.2
 
+    data: 可选的完整文本块列表，向两路检索透传，不改变融合计算
+
     return: 返回按顺序排列的列表(top_k_indices)，融合排名得分(top_k_scores)，并非余弦相似度
     """
     
-    dense_texts , dense_scores, dense_indices = query_dense_text_top_k(text_input, index_path, output_path, model, k=candidate_k, ef=ef, space=space)
-    sparse_texts, sparse_scores, sparse_indices = query_bm25_top_k(output_path, bm25, text_input, k=candidate_k)
+    # 只在显式提供数据时向下传递新参数，兼容旧的独立调用方式。
+    data_kwargs = {} if data is None else {"data": data}
+    dense_texts , dense_scores, dense_indices = query_dense_text_top_k(text_input, index_path, output_path, model, k=candidate_k, ef=ef, space=space, **data_kwargs)
+    sparse_texts, sparse_scores, sparse_indices = query_bm25_top_k(output_path, bm25, text_input, k=candidate_k, **data_kwargs)
 
     ##print(sparse_scores)
     ##print(dense_scores)
@@ -62,7 +66,7 @@ def RRF_top_k_query_indece(text_input, index_path, output_path, model, bm25, c=6
 
     return top_k_indices, top_k_scores
 
-def top_k_query_indice2text(top_k_indices, output_path):
+def top_k_query_indice2text(top_k_indices, output_path, data=None):
     """根据索引获取对应的文本内容
 
     top_k_indices: RRF算法返回的前k个索引列表
@@ -71,8 +75,9 @@ def top_k_query_indice2text(top_k_indices, output_path):
 
     return: 返回按顺序排列的文本(top_k_texts)
     """
-    with open(output_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    if data is None:
+        with open(output_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
 
     # 保留传入排名顺序，不按页码或 chunk_id 重新排序。
     top_k_texts = []
@@ -81,7 +86,7 @@ def top_k_query_indice2text(top_k_indices, output_path):
 
     return top_k_texts
 
-def top_k_query_indice2chunk(top_k_indices, output_path):
+def top_k_query_indice2chunk(top_k_indices, output_path, data=None):
     """根据索引获取对应的文本内容
 
     top_k_indices: RRF算法返回的前k个索引列表
@@ -90,8 +95,9 @@ def top_k_query_indice2chunk(top_k_indices, output_path):
 
     return: 返回按顺序排列的chunk及其相关信息(top_k_chunk)
     """
-    with open(output_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    if data is None:
+        with open(output_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
 
     # 返回完整记录，供提示词和前端共同使用来源信息。
     top_k_chunk = []

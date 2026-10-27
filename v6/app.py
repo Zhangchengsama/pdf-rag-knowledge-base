@@ -1,10 +1,12 @@
 import json
+from collections import Counter
 import streamlit as st
 from pathlib import Path
 from uuid import uuid4
 from sentence_transformers import SentenceTransformer
 
-from rag_service import answer_question
+from rag_service import answer_question, get_knowledge_base_status
+from conversations import list_conversations
 
 
 # 当前页面使用的 PDF；派生的 JSON、向量和 BM25 缓存保存在 PDF 同目录。
@@ -12,13 +14,16 @@ road = Path(
     r"C:\Users\36143\Desktop\教材资料\化学\普通高中教科书·化学必修 第一册.pdf"
 )
 
-#读取对话目录ID
+# 旧 JSONL 保持原状；标题只用于显示，选择与存储仍使用原 ID。
 conversation_dir = Path(__file__).resolve().parent / "data" / "conversations"
-conversation_ids = [
-    file.stem
-    for file in conversation_dir.glob("*.jsonl")
-]
-names =conversation_ids  #对话Uid
+conversations = list_conversations(conversation_dir)
+conversation_ids = [item["id"] for item in conversations]
+title_counts = Counter(item["title"] for item in conversations)
+conversation_labels = {
+    item["id"]: (item["title"] if title_counts[item["title"]] == 1
+                 else f"{item['title']} · {item['id'][:8]}")
+    for item in conversations
+}
 
 # HNSW 稠密索引单独保存，必须与当前 PDF 的文本块及向量保持对应。
 index_path = r"C:\Users\36143\Desktop\Python_work\index\test_index.bin"
@@ -32,6 +37,55 @@ def save_message(message):
 
     with history_path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(message, ensure_ascii=False) + "\n")
+
+
+def render_sources(sources):
+    """按检索排名显示来源；历史消息和当前回答使用同一套展示。"""
+    if not sources:
+        return
+    with st.expander("📚 查看参考资料"):
+        for i, source in enumerate(sources, start=1):
+            st.markdown(
+                f"**资料 {i}｜{source['file_name']}｜第 {source['page_number']} 页**"
+            )
+            st.write(source["text"])
+
+
+def record_build_status(state):
+    """只保存在当前页面会话，不改变回答字典和原有聊天记录。"""
+    st.session_state["knowledge_base_details"] = state
+
+
+def render_knowledge_base_status():
+    """只读展示当前配置和缓存状态；块数复用本次问答已加载的数据。"""
+    state = get_knowledge_base_status(road, index_path, max_pages=max_pages)
+    st.subheader("当前知识库")
+    st.caption(road.name)
+    st.write(f"读取上限：{'全文' if max_pages is None else f'前 {max_pages} 页'}")
+    pages = state["actual_pages"]
+    st.write(f"实际读取：{pages} 页" if pages is not None else "实际读取：无法确定")
+    labels = {
+        "ready": "符合当前缓存复用条件",
+        "not_built": "尚未建库，首次提问时创建",
+        "rebuild_required": "缓存不完整或配置变化，下次提问时重建",
+        "incomplete": "上次建库未完成，下次提问时重建",
+        "unavailable": "文档或缓存记录无法读取",
+    }
+    if state["status"] == "unavailable":
+        st.warning(labels["unavailable"])
+        st.caption(state["error"])
+    else:
+        st.caption(f"知识库状态：{labels[state['status']]}")
+    details = st.session_state.get("knowledge_base_details", {})
+    if state["status"] == "ready" and details.get("cache_signature") == state["cache_signature"]:
+        st.write(f"文本块数：{details['chunk_count']}")
+        action = "重建知识库" if details["rebuilt"] else "复用已有缓存"
+        st.caption(f"最近一次提问：{action}")
+    else:
+        st.write("文本块数：未统计")
+    if force_rebuild:
+        st.caption("当前已开启强制重建，下一次提问将重新建库。")
+
 
 @st.cache_resource
 def load_model():
@@ -53,6 +107,8 @@ question = st.chat_input("请输入你想询问的问题")
 
 #侧边栏，实现对话选择功能
 with st.sidebar:
+    render_knowledge_base_status()
+    st.divider()
     #新建对话
     #1. 使用 uuid4().hex 生成一个全新的 conversation_id。
     #2. 将 st.session_state["messages"] 设置成空列表。
@@ -64,18 +120,19 @@ with st.sidebar:
         st.rerun()
 
     st.title("历史对话")
-    st.write("这里将展示已有的对话")
-    if not names:
+    st.caption("按最近使用时间排序")
+    if not conversation_ids:
         st.write("暂无历史对话")
 
     #如果当前对话已经存在对应文件，而且选择框还没有选中历史对话，就自动选中当前对话的 UID
     current_id = st.session_state.get("conversation_id")
-    if current_id in names and st.session_state.get("selected_history") is None:
+    if current_id in conversation_ids and st.session_state.get("selected_history") is None:
         st.session_state["selected_history"] = current_id
     
     selected_id = st.selectbox(
     "选择历史对话",
-    names,
+    conversation_ids,
+    format_func=lambda conversation_id: conversation_labels[conversation_id],
     index=None,
     placeholder="选择已有对话",
     key="selected_history"
@@ -118,19 +175,11 @@ for message in st.session_state["messages"]:
     with st.chat_message(message["role"]):
         st.write(message["content"])
 
-        if message.get("sources"):
-            with st.expander("📚 查看参考资料"):
-                for i, source in enumerate(message["sources"], start=1):
-                    st.markdown(
-                        f"**资料 {i}｜{source['file_name']}｜第 {source['page_number']} 页**"
-                    )
-                    st.write(source["text"])
+        render_sources(message.get("sources"))
 
     
 #问答模块
 if question:
-    is_new_conversation = not history_path.exists()
-
     with st.chat_message("user"):
         st.write(question)
     
@@ -151,21 +200,13 @@ if question:
                 text_input=question,
                 model=model,
                 max_pages=max_pages,
-                force_rebuild=force_rebuild
+                force_rebuild=force_rebuild,
+                on_build_status=record_build_status,
             )
 
         st.write(result["answer"])
 
-        with st.expander("📚 查看参考资料"):
-
-            # 按融合检索的排名展示本次回答使用的原始文本块。
-            for i, source in enumerate(result["sources"], start=1):
-
-                st.markdown(
-                    f"**资料 {i}｜{source['file_name']}｜第 {source['page_number']} 页**"
-                )
-
-                st.write(source["text"])
+        render_sources(result["sources"])
 
     #保存AI消息
     assistant_message = {
@@ -176,6 +217,5 @@ if question:
     st.session_state["messages"].append(assistant_message)
     save_message(assistant_message)
 
-    #如果是新对话，重新运行页面以刷新历史对话选择框
-    if is_new_conversation:
-        st.rerun()
+    # 两条消息保存完成后刷新标题和排序，重跑时不再提交已消费的聊天输入。
+    st.rerun()

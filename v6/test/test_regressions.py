@@ -230,6 +230,135 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(list(indices), [0, 1])
         self.assertEqual(len(scores), 2)
 
+    def test_warm_question_reads_chunks_once(self):
+        """一次缓存命中问答只解析一次文本 JSON，来源仍按原排名返回。"""
+        self.create_pdf(['apple', 'banana'])
+        self.build()
+        with patch('json.load', wraps=json.load) as read:
+            result = self.service.answer_question(self.pdf, str(self.index), 'apple', TinyModel())
+        self.assertEqual([source['page_number'] for source in result['sources']], [1, 2])
+        self.assertEqual(read.call_count, 1)
+
+    def test_shared_data_preserves_retrieval_and_old_calls(self):
+        """共享文本数据与旧的路径调用得到相同的下标、分数及文本。"""
+        self.create_pdf(['apple', 'banana'])
+        self.build()
+        data = json.loads(self.output.read_text(encoding='utf-8'))
+        query = importlib.import_module('query')
+        model = TinyModel()
+        bm25 = self.sparse.load_bm25(self.pdf)
+        args = ('apple', str(self.index), self.output, model)
+        old_dense = self.dense.query_dense_text_top_k(*args)
+        old_sparse = self.sparse.query_bm25_top_k(self.output, bm25, 'apple')
+        old_rrf = query.RRF_top_k_query_indece(*args, bm25)
+        self.assertEqual(list(old_rrf[0]), [0, 1])
+        self.assertEqual(old_rrf[1], [0.8 / 61, 0.8 / 62])
+        with patch('json.load', side_effect=AssertionError('不应重复加载文本')):
+            self.assertEqual(self.dense.query_dense_text_top_k(*args, data=data), old_dense)
+            self.assertEqual(self.sparse.query_bm25_top_k(self.output, bm25, 'apple', data=data), old_sparse)
+            self.assertEqual(query.RRF_top_k_query_indece(*args, bm25, data=data), old_rrf)
+            self.assertEqual(query.top_k_query_indice2text([1, 0], self.output, data=data),
+                             ['banana\n', 'apple\n'])
+            self.assertEqual(query.top_k_query_indice2chunk([1, 0], self.output, data=data),
+                             [data[1], data[0]])
+            self.assertEqual(query.top_k_query_indice2chunk([], self.output, data=[]), [])
+
+    def test_prompt_from_sources_preserves_exact_legacy_text(self):
+        """提示词逐字符一致，继续支持原来的三个参数调用。"""
+        prompt = importlib.import_module('prompt')
+        self.output.write_text(json.dumps(self.rows), encoding='utf-8')
+        expected = ('用户问题：apple\n以下是参考资料：[sample.pdf]\n'
+                    '页码：2\n文本：banana\n\n[sample.pdf]\n页码：1\n文本：apple\n\n')
+        self.assertEqual(prompt.get_prompt('apple', [1, 0], self.output), expected)
+        self.assertEqual(prompt.format_prompt('apple', [self.rows[1], self.rows[0]]), expected)
+
+    def test_shared_data_preserves_two_route_weighted_fusion(self):
+        """两路均有命中且名次不同，融合权重、排名和得分保持原值。"""
+        texts = ['apple', 'banana', 'banana banana', 'pear', 'apple apple']
+        rows = [{'text': text, 'file_name': 'sample.pdf', 'page_number': i + 1}
+                for i, text in enumerate(texts)]
+        vectors = {'apple': [1., 0.], 'banana': [0., 1.], 'banana banana': [.3, 1.],
+                   'pear': [.6, 1.], 'apple apple': [1., .2]}
+        class Model:
+            def encode(self, text):
+                return np.array(vectors[text], dtype=np.float32)
+        self.output.write_text(json.dumps(rows), encoding='utf-8')
+        self.dense.save_dense_index(self.output, self.index, Model())
+        bm25 = self.sparse.build_bm25([text.split() for text in texts])
+        query = importlib.import_module('query')
+        args = ('banana', str(self.index), self.output, Model(), bm25)
+        expected_scores = [0.8 / 62 + 1.2 / 61, 0.8 / 61 + 1.2 / 62,
+                           0.8 / 63, 0.8 / 64, 0.8 / 65]
+        for options in ({}, {'data': rows}):
+            indices, scores = query.RRF_top_k_query_indece(*args, **options)
+            self.assertEqual(list(indices), [2, 1, 3, 4, 0])
+            self.assertEqual(scores, expected_scores)
+
+    def test_status_before_build_is_read_only_and_uses_actual_pages(self):
+        """打开状态面板不触发建库；读取上限 30 的两页 PDF 显示实际两页。"""
+        self.create_pdf(['apple', 'banana'])
+        before = sorted(path.name for path in self.directory.iterdir())
+        state = self.service.get_knowledge_base_status(self.pdf, self.index, max_pages=30)
+        self.assertEqual(state['status'], 'not_built')
+        self.assertEqual(state['actual_pages'], 2)
+        self.assertEqual(sorted(path.name for path in self.directory.iterdir()), before)
+
+    def test_status_checks_both_records_missing_caches_and_page_range(self):
+        """状态与原建库规则一致：双记录配对、实际页数和四种缓存均需匹配。"""
+        self.create_pdf(['apple', 'banana'])
+        self.build(1)
+        files = list(self.directory.iterdir())
+        before = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in files}
+        state = self.service.get_knowledge_base_status(self.pdf, self.index, max_pages=1)
+        self.assertEqual(state['status'], 'ready')
+        for path, expected in before.items():
+            self.assertEqual((path.read_bytes(), path.stat().st_mtime_ns), expected)
+        self.assertEqual(self.service.get_knowledge_base_status(
+            self.pdf, self.index, max_pages=2)['status'], 'rebuild_required')
+        index_record = self.index.with_suffix('.bin.meta.json')
+        record = json.loads(index_record.read_text(encoding='utf-8'))
+        record['pdf_path'] = str(self.directory / 'different.pdf')
+        index_record.write_text(json.dumps(record), encoding='utf-8')
+        self.assertEqual(self.service.get_knowledge_base_status(
+            self.pdf, self.index, max_pages=1)['status'], 'rebuild_required')
+        self.build(1)
+        self.pdf.with_suffix('.pkl').rename(self.directory / 'previous.pkl')
+        state = self.service.get_knowledge_base_status(self.pdf, self.index, max_pages=1)
+        self.assertEqual(state['status'], 'rebuild_required')
+        self.assertIn(str(self.pdf.with_suffix('.pkl')), state['missing_caches'])
+
+    def test_status_distinguishes_unfinished_corrupt_and_unavailable(self):
+        """遗留 building 记录表示未完成，不冒充正在后台构建或已就绪。"""
+        self.create_pdf(['apple'])
+        with patch.object(self.service, 'save_bm25', side_effect=RuntimeError('写入中断')):
+            with self.assertRaises(RuntimeError):
+                self.build()
+        self.assertEqual(self.service.get_knowledge_base_status(
+            self.pdf, self.index)['status'], 'incomplete')
+        self.build()
+        self.pdf.with_suffix('.build.json').write_text('{', encoding='utf-8')
+        self.assertEqual(self.service.get_knowledge_base_status(
+            self.pdf, self.index)['status'], 'rebuild_required')
+        self.assertEqual(self.service.get_knowledge_base_status(
+            self.directory / 'absent.pdf', self.index)['status'], 'unavailable')
+
+    def test_optional_build_callback_keeps_answer_contract(self):
+        """状态回调接收建库结果和已加载的块数，不增加回答字典字段或 JSON 读取。"""
+        self.create_pdf(['apple', 'banana'])
+        self.build()
+        updates = []
+        with patch('json.load', wraps=json.load) as read:
+            result = self.service.answer_question(
+                self.pdf, str(self.index), 'apple', TinyModel(), on_build_status=updates.append)
+        self.assertEqual(set(result), {'answer', 'sources'})
+        self.assertEqual(read.call_count, 1)
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0]['chunk_count'], 2)
+        self.assertEqual(updates[0]['actual_pages'], 2)
+        self.assertFalse(updates[0]['rebuilt'])
+        self.assertEqual(updates[0]['cache_signature'],
+                         self.service.get_knowledge_base_status(self.pdf, self.index)['cache_signature'])
+
     def test_eval_uses_final_k_without_global(self):
         """作为模块调用评估函数时不需要预先设置全局 k。"""
         self.check_evaluation()

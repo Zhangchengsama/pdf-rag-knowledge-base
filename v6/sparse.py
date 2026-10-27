@@ -89,7 +89,7 @@ def query_bm25(bm25: BM25Okapi, query: str):
     scores = bm25.get_scores(query_tokens)
     return scores
 
-def query_bm25_top_k(output_path, bm25: BM25Okapi, query: str, k: int = 5):
+def query_bm25_top_k(output_path, bm25: BM25Okapi, query: str, k: int = 5, data=None):
     """使用BM25模型进行查询并返回前k个相关性最高的文档
 
     bm25: BM25模型对象
@@ -97,6 +97,8 @@ def query_bm25_top_k(output_path, bm25: BM25Okapi, query: str, k: int = 5):
     query: 查询字符串
 
     k: 返回的文档数量
+
+    data: 可选的完整文本块列表；省略时从 output_path 加载
 
     return: 返回一个包含前k个相关性最高(得分大于零)的文段(top_k_texts)和得分的列表(top_k_scores),以及对应的索引列表(top_k_indices)
     """
@@ -106,8 +108,9 @@ def query_bm25_top_k(output_path, bm25: BM25Okapi, query: str, k: int = 5):
     top_k_indices = [i for i in top_k_indices if scores[i] > 0]
     top_k_scores = [scores[i] for i in top_k_indices]
 
-    with open(output_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    if data is None:
+        with open(output_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
 
     # 按分数排序后的下标回查原文，三个返回列表按位置一一对应。
     text_texts = []

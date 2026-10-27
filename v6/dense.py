@@ -78,7 +78,7 @@ def save_dense_index(output_path: Path, index_path: Path, model, space: str = "c
 
     index.save_index(str(index_path))
 
-def query_dense_text_top_k(text_input, index_path: Path, output_path:Path, model, k=5, ef=50 ,space: str = "cosine"):
+def query_dense_text_top_k(text_input, index_path: Path, output_path:Path, model, k=5, ef=50 ,space: str = "cosine", data=None):
     """查询文本与已保存的PDF文本数据的相似度
 
     text_input: 用户输入的文本字符串
@@ -94,14 +94,18 @@ def query_dense_text_top_k(text_input, index_path: Path, output_path:Path, model
     ef: HNSW索引的ef参数
 
     space: 距离度量空间
+
+    data: 可选的完整文本块列表；省略时从 output_path 加载
     
     return: 返回按顺序排列的文本(top_k_texts)，相似度得分(top_k_scores)和索引列表(top_k_indices)
     """
 
     results = []
 
-    with open(output_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    # 调用方可传入本次问答已加载的文本；旧调用仍从文件读取。
+    if data is None:
+        with open(output_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
 
     embeddings = np.load(output_path.with_suffix(".npy"))
 
