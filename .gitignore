@@ -1,0 +1,36 @@
+# Python bytecode, environments, and tool caches
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Local credentials; keep example configuration trackable
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+*.pem
+*.key
+
+# Private conversation history and local scratch data
+**/data/conversations/
+/chatdata/
+
+# Source documents, downloaded models, and generated retrieval caches
+*.pdf
+*.npy
+*.pkl
+*.bin
+*.bin.meta.json
+*.build.json
+/models/
+/artifacts/cache/
+*.log
+
+# Keep source, evaluation questions/results, and documentation in Git.
+# Do not ignore all JSON files: test datasets are part of the baseline.

@@ -1,0 +1,71 @@
+# 题一：PDF RAG 知识库
+
+当前开发入口是 `v6/app.py`。检索流程为 PDF 文本提取、按字符切块、SentenceTransformer 编码、HNSW 与 BM25 检索、加权 RRF 融合、DeepSeek 回答。
+
+## 版本管理约定
+
+- 本目录是一个独立的本地 Git 仓库，主分支为 `main`。
+- 首次提交保留现有 v1、v2、v3、v3 weight_rrf、v4、v5、v6 的源码和小型评测资料。它们是已有文件的导入快照，不代表重新还原了过去各版的开发历史。
+- `baseline-v6` 标签指向本次导入基线。以后继续修改 `v6`，用提交记录每个完成的步骤，不再复制出 v7、v8 文件夹。
+- 历史目录和现有聊天记录均保留在磁盘上。本次没有移动或删除文件，也没有修改 Python 业务代码。
+- 未配置远程仓库。本地 Git 用于版本回溯；异地备份需要另行配置远程仓库或备份整个仓库。
+
+## 日常操作
+
+在本目录打开终端：
+
+```powershell
+git status
+git diff
+git add -- v6/app.py
+git diff --cached
+git commit -m "改进历史对话展示"
+git log --oneline --decorate
+```
+
+一次修改涉及多个文件时，在 `git add --` 后明确列出文件。提交前检查暂存差异，确认没有聊天记录、密钥和生成数据。
+
+查看初始版本中的文件，不覆盖工作区：
+
+```powershell
+git show baseline-v6:v6/app.py
+```
+
+较大的独立功能可以先创建分支：
+
+```powershell
+git switch -c feature/conversation-titles
+```
+
+本机尚未配置 Git 提交身份。首次基线使用一次性的 `Codex <codex@localhost>` 身份，不修改全局配置。后续手动提交前，请在本仓库设置自己的身份：
+
+```powershell
+git config user.name "你的名字"
+git config user.email "你的邮箱"
+```
+
+## 哪些文件不进入版本管理
+
+`.gitignore` 排除了 Python 缓存、虚拟环境、密钥文件、实际聊天记录、PDF、向量、BM25 缓存和 HNSW 索引。评测问题、小型评测结果和文档仍纳入管理。
+
+当前 PDF 和 HNSW 索引路径在仓库外，Git 不会保存这些文件；PDF 同名的派生 JSON 也写在原 PDF 目录。如果以后将生成数据迁入仓库，应使用专门的缓存目录并加入忽略规则，不要统一忽略所有 JSON。
+
+## 运行与检查
+
+本机已发现的现有环境是 `D:/miniforge3/envs/aip1`。在仓库根目录运行：
+
+```powershell
+& 'D:\miniforge3\envs\aip1\python.exe' -m streamlit run v6/app.py
+```
+
+页面依赖本地缓存的嵌入模型；生成回答需要环境变量 `DEEPSEEK_API_KEY`。PDF 路径、索引路径与读取页数仍以入口文件里的现有配置为准。前端目前读取前 30 页，命令行及评测入口目前读取前 11 页。
+
+离线回归检查：
+
+```powershell
+& 'D:\miniforge3\envs\aip1\python.exe' -B -m unittest discover -s v6/test -p test_regressions.py
+```
+
+现有测试使用真实的小型 PDF、BM25 和 HNSW，嵌入模型与 LLM 使用替身；不下载模型、不调用 API。测试产物保留在临时目录，不执行批量删除。如果执行环境限制默认临时目录写入，可将进程的 `TEMP` 和 `TMP` 指向允许写入的目录后运行。
+
+当前仓库尚未固定依赖版本，启动命令也不代表新电脑已经能够直接复现。后续建议补充依赖清单、配置示例与完整启动说明。

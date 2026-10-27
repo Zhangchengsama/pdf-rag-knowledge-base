@@ -1,0 +1,102 @@
+[
+  {
+    "question": "化学主要在什么水平上研究物质，研究哪些内容？",
+    "gold_page": 7,
+    "type": "lexical"
+  },
+  {
+    "question": "侯德榜在1943年发明了什么制碱方法？",
+    "gold_page": 8,
+    "type": "lexical"
+  },
+  {
+    "question": "什么是同素异形体？",
+    "gold_page": 11,
+    "type": "lexical"
+  },
+  {
+    "question": "如果要把数量庞大的物质分门别类，可以从哪些方面作为分类依据？",
+    "gold_page": 11,
+    "type": "lexical"
+  },
+  {
+    "question": "为什么高中化学学习既要做实验，也要学理论？",
+    "gold_page": 9,
+    "type": "lexical"
+  },
+  {
+    "question": "研制新的航空航天材料和医用材料时，化学家需要研究和改进物质的哪些方面？",
+    "gold_page": 8,
+    "type": "lexical"
+  },
+  {
+    "question": "目录中，离子反应是第一章第几节？",
+    "gold_page": 5,
+    "type": "lexical"
+  },
+  {
+    "question": "目录中，名词索引列为哪个附录、起始教材页码是多少？",
+    "gold_page": 6,
+    "type": "lexical"
+  },
+  {
+    "question": "教材对“实验活动”“思考与讨论”等主要栏目的说明集中在哪一页？",
+    "gold_page": 4,
+    "type": "lexical"
+  },
+  {
+    "question": "第一章开篇照片中，氯化铜溶液滴入氢氧化钠溶液后生成的沉淀是什么颜色和形态？",
+    "gold_page": 10,
+    "type": "lexical"
+  },
+  {
+    "question": "研究各种物质及其变化的这门学科，主要从多小的尺度入手，又关心它们的哪些方面？",
+    "gold_page": 7,
+    "type": "semantic"
+  },
+  {
+    "question": "书中提到，我国学者曾为生产纯碱创造了一种新工艺，这种工艺叫什么？",
+    "gold_page": 8,
+    "type": "semantic"
+  },
+  {
+    "question": "同一种元素可以形成不止一种单质，而且它们的表现各不相同，这些单质彼此是什么关系？",
+    "gold_page": 11,
+    "type": "semantic"
+  },
+  {
+    "question": "面对种类繁多的化学物质，想把相近的归到同一组，通常可以依据它们的哪些特征？",
+    "gold_page": 11,
+    "type": "semantic"
+  },
+  {
+    "question": "学习化学时，亲手观察现象和用原理解释现象为什么应当配合起来？",
+    "gold_page": 9,
+    "type": "semantic"
+  },
+  {
+    "question": "如果希望一种材料更适合飞机、航天器或医疗用途，化学研究可以从材料本身哪些角度入手？",
+    "gold_page": 8,
+    "type": "semantic"
+  },
+  {
+    "question": "第一章中，讲带电微粒参与的那些反应的内容，排在第几节？",
+    "gold_page": 5,
+    "type": "semantic"
+  },
+  {
+    "question": "想查某个术语在书中哪里出现，书后用于查词的那一部分排在第几个附录、从书上标的哪一页开始？",
+    "gold_page": 6,
+    "type": "semantic"
+  },
+  {
+    "question": "想弄清书里那些让人动手操作、独立想一想或与同学交流的小板块分别有什么用途，应该看哪一页的统一介绍？",
+    "gold_page": 4,
+    "type": "semantic"
+  },
+  {
+    "question": "第一章开头那张近距离拍摄的反应照片里，混合两种液体后析出的固体看起来是什么颜色、什么样子？",
+    "gold_page": 10,
+    "type": "semantic"
+  }
+]

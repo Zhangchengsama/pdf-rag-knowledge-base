@@ -1,0 +1,837 @@
+{
+  "eval_set": "eval_questions.json",
+  "metric": "Page-level Hit@1 and Hit@5 over the first 5 retrieved chunks; duplicate pages count at most once per question.",
+  "experiments": [
+    {
+      "experiment": "A",
+      "dense_weight": 1,
+      "sparse_weight": 1,
+      "candidate_k": 20,
+      "final_k": 5,
+      "c": 60,
+      "ef": 50,
+      "space": "cosine",
+      "eval_set_sha256": "6056ff677ac0976d3659cf4c5a1c15e4f2cd47f3c14bee5d02a9a3554ebcd7bf",
+      "summary": {
+        "all": {
+          "n": 20,
+          "hit_at_1_count": 14,
+          "hit_at_5_count": 19,
+          "hit_at_1": 0.7,
+          "hit_at_5": 0.95
+        },
+        "lexical": {
+          "n": 10,
+          "hit_at_1_count": 8,
+          "hit_at_5_count": 10,
+          "hit_at_1": 0.8,
+          "hit_at_5": 1
+        },
+        "semantic": {
+          "n": 10,
+          "hit_at_1_count": 6,
+          "hit_at_5_count": 9,
+          "hit_at_1": 0.6,
+          "hit_at_5": 0.9
+        }
+      },
+      "per_question": [
+        {
+          "question_number": 1,
+          "top_pages": [
+            9,
+            7,
+            9,
+            4,
+            8
+          ],
+          "hit_at_1": 0,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 2,
+          "top_pages": [
+            8,
+            7,
+            8,
+            7,
+            7
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 3,
+          "top_pages": [
+            11,
+            11,
+            9,
+            10,
+            9
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 4,
+          "top_pages": [
+            11,
+            10,
+            11,
+            8,
+            9
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 5,
+          "top_pages": [
+            9,
+            9,
+            9,
+            4,
+            9
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 6,
+          "top_pages": [
+            8,
+            8,
+            8,
+            9,
+            7
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 7,
+          "top_pages": [
+            5,
+            11,
+            10,
+            11,
+            9
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 8,
+          "top_pages": [
+            4,
+            2,
+            3,
+            6,
+            6
+          ],
+          "hit_at_1": 0,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 9,
+          "top_pages": [
+            4,
+            4,
+            9,
+            8,
+            4
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 10,
+          "top_pages": [
+            10,
+            5,
+            5,
+            9,
+            11
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 11,
+          "top_pages": [
+            10,
+            9,
+            9,
+            8,
+            8
+          ],
+          "hit_at_1": 0,
+          "hit_at_5": 0
+        },
+        {
+          "question_number": 12,
+          "top_pages": [
+            8,
+            9,
+            7,
+            7,
+            8
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 13,
+          "top_pages": [
+            11,
+            10,
+            8,
+            11,
+            8
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 14,
+          "top_pages": [
+            8,
+            8,
+            6,
+            9,
+            11
+          ],
+          "hit_at_1": 0,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 15,
+          "top_pages": [
+            9,
+            9,
+            9,
+            4,
+            4
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 16,
+          "top_pages": [
+            8,
+            8,
+            9,
+            9,
+            9
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 17,
+          "top_pages": [
+            5,
+            9,
+            10,
+            6,
+            11
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 18,
+          "top_pages": [
+            2,
+            6,
+            8,
+            4,
+            6
+          ],
+          "hit_at_1": 0,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 19,
+          "top_pages": [
+            4,
+            11,
+            4,
+            9,
+            4
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 20,
+          "top_pages": [
+            5,
+            10,
+            9,
+            7,
+            10
+          ],
+          "hit_at_1": 0,
+          "hit_at_5": 1
+        }
+      ],
+      "elapsed_seconds": 6.37
+    },
+    {
+      "experiment": "B",
+      "dense_weight": 0.8,
+      "sparse_weight": 1.2,
+      "candidate_k": 20,
+      "final_k": 5,
+      "c": 60,
+      "ef": 50,
+      "space": "cosine",
+      "eval_set_sha256": "6056ff677ac0976d3659cf4c5a1c15e4f2cd47f3c14bee5d02a9a3554ebcd7bf",
+      "summary": {
+        "all": {
+          "n": 20,
+          "hit_at_1_count": 15,
+          "hit_at_5_count": 19,
+          "hit_at_1": 0.75,
+          "hit_at_5": 0.95
+        },
+        "lexical": {
+          "n": 10,
+          "hit_at_1_count": 9,
+          "hit_at_5_count": 10,
+          "hit_at_1": 0.9,
+          "hit_at_5": 1
+        },
+        "semantic": {
+          "n": 10,
+          "hit_at_1_count": 6,
+          "hit_at_5_count": 9,
+          "hit_at_1": 0.6,
+          "hit_at_5": 0.9
+        }
+      },
+      "per_question": [
+        {
+          "question_number": 1,
+          "top_pages": [
+            7,
+            9,
+            9,
+            4,
+            8
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 2,
+          "top_pages": [
+            8,
+            7,
+            8,
+            7,
+            7
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 3,
+          "top_pages": [
+            11,
+            11,
+            9,
+            10,
+            9
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 4,
+          "top_pages": [
+            11,
+            10,
+            11,
+            8,
+            9
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 5,
+          "top_pages": [
+            9,
+            9,
+            9,
+            4,
+            9
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 6,
+          "top_pages": [
+            8,
+            8,
+            8,
+            9,
+            9
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 7,
+          "top_pages": [
+            5,
+            11,
+            10,
+            11,
+            9
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 8,
+          "top_pages": [
+            2,
+            4,
+            6,
+            3,
+            6
+          ],
+          "hit_at_1": 0,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 9,
+          "top_pages": [
+            4,
+            4,
+            8,
+            9,
+            4
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 10,
+          "top_pages": [
+            10,
+            5,
+            9,
+            11,
+            5
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 11,
+          "top_pages": [
+            10,
+            9,
+            8,
+            9,
+            9
+          ],
+          "hit_at_1": 0,
+          "hit_at_5": 0
+        },
+        {
+          "question_number": 12,
+          "top_pages": [
+            8,
+            9,
+            7,
+            8,
+            7
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 13,
+          "top_pages": [
+            11,
+            10,
+            8,
+            11,
+            6
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 14,
+          "top_pages": [
+            8,
+            8,
+            6,
+            11,
+            9
+          ],
+          "hit_at_1": 0,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 15,
+          "top_pages": [
+            9,
+            9,
+            9,
+            4,
+            4
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 16,
+          "top_pages": [
+            8,
+            8,
+            9,
+            9,
+            9
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 17,
+          "top_pages": [
+            5,
+            9,
+            10,
+            11,
+            6
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 18,
+          "top_pages": [
+            7,
+            6,
+            8,
+            2,
+            6
+          ],
+          "hit_at_1": 0,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 19,
+          "top_pages": [
+            4,
+            11,
+            4,
+            9,
+            4
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 20,
+          "top_pages": [
+            5,
+            9,
+            10,
+            10,
+            7
+          ],
+          "hit_at_1": 0,
+          "hit_at_5": 1
+        }
+      ],
+      "elapsed_seconds": 6.56
+    },
+    {
+      "experiment": "C",
+      "dense_weight": 0.6,
+      "sparse_weight": 1.4,
+      "candidate_k": 20,
+      "final_k": 5,
+      "c": 60,
+      "ef": 50,
+      "space": "cosine",
+      "eval_set_sha256": "6056ff677ac0976d3659cf4c5a1c15e4f2cd47f3c14bee5d02a9a3554ebcd7bf",
+      "summary": {
+        "all": {
+          "n": 20,
+          "hit_at_1_count": 15,
+          "hit_at_5_count": 18,
+          "hit_at_1": 0.75,
+          "hit_at_5": 0.9
+        },
+        "lexical": {
+          "n": 10,
+          "hit_at_1_count": 9,
+          "hit_at_5_count": 10,
+          "hit_at_1": 0.9,
+          "hit_at_5": 1
+        },
+        "semantic": {
+          "n": 10,
+          "hit_at_1_count": 6,
+          "hit_at_5_count": 8,
+          "hit_at_1": 0.6,
+          "hit_at_5": 0.8
+        }
+      },
+      "per_question": [
+        {
+          "question_number": 1,
+          "top_pages": [
+            7,
+            9,
+            9,
+            4,
+            9
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 2,
+          "top_pages": [
+            8,
+            7,
+            8,
+            7,
+            9
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 3,
+          "top_pages": [
+            11,
+            11,
+            9,
+            10,
+            9
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 4,
+          "top_pages": [
+            11,
+            10,
+            8,
+            11,
+            9
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 5,
+          "top_pages": [
+            9,
+            9,
+            9,
+            4,
+            9
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 6,
+          "top_pages": [
+            8,
+            8,
+            8,
+            9,
+            9
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 7,
+          "top_pages": [
+            5,
+            11,
+            10,
+            9,
+            11
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 8,
+          "top_pages": [
+            2,
+            6,
+            4,
+            6,
+            3
+          ],
+          "hit_at_1": 0,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 9,
+          "top_pages": [
+            4,
+            4,
+            8,
+            9,
+            8
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 10,
+          "top_pages": [
+            10,
+            5,
+            9,
+            11,
+            5
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 11,
+          "top_pages": [
+            10,
+            9,
+            8,
+            9,
+            9
+          ],
+          "hit_at_1": 0,
+          "hit_at_5": 0
+        },
+        {
+          "question_number": 12,
+          "top_pages": [
+            8,
+            9,
+            7,
+            8,
+            7
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 13,
+          "top_pages": [
+            11,
+            10,
+            8,
+            11,
+            6
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 14,
+          "top_pages": [
+            8,
+            6,
+            8,
+            10,
+            7
+          ],
+          "hit_at_1": 0,
+          "hit_at_5": 0
+        },
+        {
+          "question_number": 15,
+          "top_pages": [
+            9,
+            9,
+            9,
+            9,
+            4
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 16,
+          "top_pages": [
+            8,
+            8,
+            9,
+            9,
+            10
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 17,
+          "top_pages": [
+            5,
+            9,
+            10,
+            11,
+            10
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 18,
+          "top_pages": [
+            7,
+            6,
+            8,
+            6,
+            2
+          ],
+          "hit_at_1": 0,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 19,
+          "top_pages": [
+            4,
+            11,
+            4,
+            9,
+            4
+          ],
+          "hit_at_1": 1,
+          "hit_at_5": 1
+        },
+        {
+          "question_number": 20,
+          "top_pages": [
+            5,
+            9,
+            10,
+            11,
+            10
+          ],
+          "hit_at_1": 0,
+          "hit_at_5": 1
+        }
+      ],
+      "elapsed_seconds": 6.46
+    }
+  ]
+}
