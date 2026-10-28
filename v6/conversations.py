@@ -1,4 +1,4 @@
-"""保留 JSONL 消息格式，额外元数据保存生成标题、文档绑定和处理状态。"""
+"""保留 JSONL 消息格式，保存标题与请求状态，并兼容旧会话的文档字段。"""
 import json
 from pathlib import Path
 from conversation_lock import conversation_lock
@@ -77,8 +77,8 @@ def first_question(messages):
 
 
 def bind_document(history_path, document):
-    # 绑定资料
-    # 1. 取得会话锁，再保存文档和读取范围。
+    # 兼容旧调用
+    # 1. 取得会话锁，保留旧业务调用的写入方式；网页已不再调用此函数。
     with conversation_lock(history_path):
         return _bind_document(history_path, document)
 

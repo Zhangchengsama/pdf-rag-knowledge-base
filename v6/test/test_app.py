@@ -94,8 +94,36 @@ class AppTests(unittest.TestCase):
     def sources(self):
         return [item for item in self.app.expander if item.label == '📚 查看参考资料']
 
-    def test_open_only_reports_status_without_building(self):
+    def show_manager(self):
+        self.app.switch_page(str(ROOT / 'knowledge_ui.py'))
+        return self.run_app()
+
+    def show_chat(self):
+        self.app.switch_page(str(ROOT / 'chat_ui.py'))
+        return self.run_app()
+
+    def test_chat_has_no_document_controls_and_management_uses_its_own_page(self):
         app = self.run_app()
+        self.assertEqual([item.proto.label for item in app.main.get('page_link')], ['问答', '知识库管理'])
+        self.assertEqual(len(app.sidebar.get('page_link')), 0)
+        self.assertEqual(len(app.text_input), 0)
+        self.assertEqual(len(app.radio), 0)
+        self.assertEqual(len(app.chat_input), 1)
+        app.switch_page(str(ROOT / 'knowledge_ui.py'))
+        self.run_app()
+        self.assertEqual(len(app.chat_input), 0)
+        self.assertEqual(len(app.main.text_input), 1)
+        self.assertEqual(len(app.sidebar.text_input), 0)
+        self.assertEqual(len(app.sidebar.radio), 0)
+        self.assertIn('知识库管理', [item.value for item in app.title])
+        self.assertEqual(list(self.histories.glob('*.meta.json')), [])
+        app.switch_page(str(ROOT / 'chat_ui.py'))
+        self.run_app()
+        self.assertEqual(len(app.chat_input), 1)
+
+    def test_open_only_reports_status_without_building(self):
+        self.run_app()
+        app = self.show_manager()
         self.assertFalse(self.index.exists())
         self.assertFalse(self.pdf.with_suffix('.json').exists())
         text = '\n'.join(item.value for item in list(app.markdown) + list(app.caption))
@@ -132,7 +160,9 @@ class AppTests(unittest.TestCase):
         self.assertEqual([row['page_number'] for row in records[-1]['sources']], [1, 2])
         self.assertEqual(set(records[-1]), {'role', 'content', 'sources'})
         self.assertEqual(len(self.sources()), 2)
+        self.show_manager()
         self.assertIn('文本块数：2', '\n'.join(item.value for item in app.markdown))
+        self.show_chat()
         self.run_app()
         self.assertEqual(len(self.prompts), 1)
         self.assertEqual(history.read_text(encoding='utf-8').count('apple followup'), 1)
@@ -147,7 +177,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual(len(self.prompts), 1)
         service = importlib.import_module('rag_service')
         service.building_data(self.pdf, str(self.index), TinyModel(), max_pages=30, force_rebuild=True)
-        self.run_app()
+        self.show_manager()
         self.assertIn('文本块数：未统计', '\n'.join(item.value for item in app.markdown))
 
     def test_same_title_history_selection_keeps_original_ids(self):
@@ -204,8 +234,9 @@ class AppTests(unittest.TestCase):
         self.assertEqual(self.title_prompts, ['apple first question'])
         self.assertEqual(len(self.prompts), 1)
 
-    def test_document_and_full_range_are_bound_before_answer(self):
+    def test_shared_document_and_range_can_change_without_starting_a_new_conversation(self):
         from conversations import load_metadata
+        from document_settings import load_active_document
         other = self.directory / 'other.pdf'
         with pymupdf.open() as document:
             for text in ('apple', 'banana', 'pear'):
@@ -213,20 +244,44 @@ class AppTests(unittest.TestCase):
             document.save(str(other))
         app = self.run_app()
         identity = app.session_state['conversation_id']
+        self.show_manager()
         app.text_input[0].set_value(str(other))
         app.radio[0].set_value('全文')
         app.button(key='apply_document').click()
         self.run_app()
+        self.assertFalse(self.index.exists())
+        self.assertEqual(list(self.histories.glob('*.meta.json')), [])
+        self.show_chat()
         app.chat_input[0].set_value('banana')
         self.run_app()
         state = load_metadata(self.histories / f'{identity}.jsonl')
-        self.assertEqual(state['document']['pdf_path'], str(other))
-        self.assertIsNone(state['document']['max_pages'])
-        self.assertNotEqual(state['document']['index_path'], str(self.index))
+        self.assertNotIn('document', state)
+        self.assertEqual(state['request']['document']['pdf_path'], str(other))
+        self.assertIsNone(state['request']['document']['max_pages'])
+        self.assertNotEqual(state['request']['document']['index_path'], str(self.index))
         self.assertEqual(app.session_state['knowledge_base_details']['actual_pages'], 3)
-        self.assertTrue(app.button(key='apply_document').disabled)
+        self.show_manager()
+        self.assertFalse(app.button(key='apply_document').disabled)
+        app.radio[0].set_value('前 N 页')
+        app.number_input[0].set_value(1)
+        app.button(key='apply_document').click()
+        self.run_app()
+        self.show_chat()
+        self.assertEqual(app.session_state['conversation_id'], identity)
+        app.chat_input[0].set_value('apple again')
+        self.run_app()
+        state = load_metadata(self.histories / f'{identity}.jsonl')
+        self.assertEqual(state['request']['document']['max_pages'], 1)
+        self.assertEqual(app.session_state['messages'][-1]['sources'][0]['file_name'], 'other.pdf')
+        self.assertEqual({source['page_number'] for source in app.session_state['messages'][-1]['sources']}, {1})
+        self.assertEqual(load_active_document(self.settings)['max_pages'], 1)
+        self.app = AppTest.from_function(render_test_app, args=(self.settings,), default_timeout=10)
+        self.run_app()
+        app = self.show_manager()
+        self.assertEqual(app.text_input[0].value, str(other))
+        self.assertEqual(app.number_input[0].value, 1)
 
-    def test_legacy_history_needs_explicit_binding_and_can_generate_title(self):
+    def test_legacy_history_can_continue_without_document_binding_and_generate_title(self):
         from conversations import load_metadata
         identity = 'c' * 32
         history = self.history(identity, '完整旧问题', '旧回答', 1_000_000_000, bind=False)
@@ -234,15 +289,86 @@ class AppTests(unittest.TestCase):
         app = self.run_app()
         app.selectbox[0].select(identity)
         self.run_app()
-        self.assertTrue(app.chat_input[0].disabled)
+        self.assertFalse(app.chat_input[0].disabled)
         self.assertEqual(self.prompts, [])
         self.assertEqual(self.title_prompts, [])
-        app.button(key='apply_document').click()
-        self.run_app()
-        self.assertFalse(app.chat_input[0].disabled)
         self.assertEqual(history.read_bytes(), before)
-        self.assertEqual(load_metadata(history)['document']['pdf_path'], str(self.pdf))
         app.button(key='retry_title').click()
         self.run_app()
         self.assertEqual(self.title_prompts, ['完整旧问题'])
         self.assertEqual(self.prompts, [])
+        self.assertNotIn('document', load_metadata(history))
+        app.chat_input[0].set_value('apple followup')
+        self.run_app()
+        self.assertEqual(len(self.prompts), 1)
+
+    def test_retry_keeps_original_range_after_shared_settings_change(self):
+        from conversations import load_metadata
+        app = self.run_app()
+        identity = app.session_state['conversation_id']
+        history = self.histories / f'{identity}.jsonl'
+        with patch.object(sys.modules['LLM'], 'ask_llm', side_effect=TimeoutError('timeout')):
+            app.chat_input[0].set_value('apple question')
+            self.run_app()
+        self.show_manager()
+        app.number_input[0].set_value(1)
+        app.button(key='apply_document').click()
+        self.run_app()
+        self.show_chat()
+        app.button(key='retry_request').click()
+        self.run_app()
+        self.assertEqual(load_metadata(history)['request']['document']['max_pages'], 30)
+        self.assertEqual({source['page_number'] for source in app.session_state['messages'][-1]['sources']}, {1, 2})
+        self.assertEqual(len(app.session_state['messages']), 2)
+        app.chat_input[0].set_value('apple next question')
+        self.run_app()
+        self.assertEqual(load_metadata(history)['request']['document']['max_pages'], 1)
+        self.assertEqual({source['page_number'] for source in app.session_state['messages'][-1]['sources']}, {1})
+
+    def test_old_binding_does_not_override_shared_settings_for_new_questions(self):
+        from document_settings import prepare_document, save_active_document
+        from conversations import load_metadata
+        identity = 'd' * 32
+        history = self.history(identity, '旧标题', '旧回答', 1_000_000_000)
+        other = self.directory / 'current.pdf'
+        other.write_bytes(self.pdf.read_bytes())
+        selected = prepare_document(other, 1, self.pdf, self.index, self.settings.index_dir)
+        save_active_document(self.settings, selected)
+        app = self.run_app()
+        app.selectbox[0].select(identity)
+        self.run_app()
+        app.chat_input[0].set_value('apple')
+        self.run_app()
+        self.assertEqual(load_metadata(history)['document']['pdf_path'], str(self.pdf))
+        self.assertEqual(app.session_state['messages'][1]['content'], '旧回答')
+        self.assertEqual({source['file_name'] for source in app.session_state['messages'][-1]['sources']}, {'current.pdf'})
+
+    def test_invalid_document_does_not_replace_saved_knowledge_settings(self):
+        from document_settings import prepare_document, save_active_document, load_active_document
+        selected = prepare_document(self.pdf, 1, self.pdf, self.index, self.settings.index_dir)
+        save_active_document(self.settings, selected)
+        self.run_app()
+        app = self.show_manager()
+        app.text_input[0].set_value(str(self.directory / 'missing.pdf'))
+        app.button(key='apply_document').click()
+        self.run_app()
+        self.assertTrue(app.error)
+        self.assertEqual(load_active_document(self.settings), selected)
+        self.assertFalse(self.index.exists())
+        self.assertEqual(self.prompts, [])
+
+    def test_corrupt_shared_settings_can_be_repaired_on_management_page(self):
+        from document_settings import load_active_document
+        self.settings.knowledge_settings_path.parent.mkdir(parents=True, exist_ok=True)
+        self.settings.knowledge_settings_path.write_text('{broken', encoding='utf-8')
+        app = self.run_app()
+        self.assertTrue(app.error)
+        self.assertTrue(app.chat_input[0].disabled)
+        self.show_manager()
+        self.assertEqual(len(app.text_input), 1)
+        app.button(key='apply_document').click()
+        self.run_app()
+        self.assertEqual(load_active_document(self.settings)['pdf_path'], str(self.pdf))
+        self.show_chat()
+        self.assertFalse(app.chat_input[0].disabled)
+        self.assertFalse(self.index.exists())

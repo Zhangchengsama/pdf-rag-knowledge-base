@@ -52,6 +52,12 @@ class Settings:
         return self.base_dir / "data" / "indexes"
 
     @property
+    def knowledge_settings_path(self):
+        # 知识库设置
+        # 1. 在数据目录中定位所有会话共用的文档设置。
+        return self.base_dir / "data" / "knowledge_base.json"
+
+    @property
     def evaluation_path(self):
         # 评测题集
         # 1. 相对项目目录找到评测问题。

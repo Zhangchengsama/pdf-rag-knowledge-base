@@ -1,4 +1,4 @@
-"""失败重试、独立标题请求及文档绑定使用真实文件，模型和 API 隔离。"""
+"""失败重试、独立标题、请求资料及旧调用使用真实文件，模型和 API 隔离。"""
 import importlib
 import json
 from pathlib import Path
@@ -122,6 +122,60 @@ class WorkflowTests(unittest.TestCase):
             bind_document(self.history, {'pdf_path': str(self.pdf), 'index_path': str(self.index),
                                          'max_pages': None})
         self.assertEqual(load_metadata(self.history)['document']['max_pages'], 1)
+
+    def test_new_request_snapshot_overrides_legacy_binding_and_is_independent(self):
+        from chat_workflow import start_request, run_request
+        from conversations import load_metadata, read_messages
+        self.bind(1)
+        document = {'pdf_path': str(self.pdf), 'index_path': str(self.index), 'max_pages': None}
+        start_request(self.history, 'banana', document=document)
+        document['max_pages'] = 1
+        state = run_request(self.history, TinyModel)
+        self.assertEqual(state['request']['status'], 'complete')
+        self.assertIsNone(state['request']['document']['max_pages'])
+        self.assertEqual(load_metadata(self.history)['document']['max_pages'], 1)
+        self.assertEqual({item['page_number'] for item in read_messages(self.history)[-1]['sources']}, {1, 2})
+
+    def test_old_unbound_unanswered_request_can_retry_using_current_knowledge_base(self):
+        from chat_workflow import recover_request, run_request
+        from conversations import append_message, read_messages
+        append_message(self.history, {'role': 'user', 'content': 'apple'})
+        recover_request(self.history)
+        document = {'pdf_path': str(self.pdf), 'index_path': str(self.index), 'max_pages': 1}
+        state = run_request(self.history, TinyModel, document=document)
+        self.assertEqual(state['request']['status'], 'complete')
+        self.assertEqual(state['request']['document'], document)
+        self.assertNotIn('document', state)
+        self.assertEqual(len(read_messages(self.history)), 2)
+
+    def test_shared_settings_round_trip_and_explicit_full_range(self):
+        from config import load_settings
+        from document_settings import load_active_document, save_active_document
+        settings = load_settings(base_dir=self.directory, pdf_path=self.pdf, index_path=self.index)
+        self.assertEqual(load_active_document(settings)['max_pages'], 30)
+        self.assertFalse(settings.knowledge_settings_path.exists())
+        document = {'pdf_path': str(self.pdf), 'index_path': str(self.index), 'max_pages': None}
+        save_active_document(settings, document)
+        reopened = load_settings(base_dir=self.directory, pdf_path=self.pdf, index_path=self.index)
+        self.assertEqual(load_active_document(reopened), document)
+        self.assertFalse(self.index.exists())
+        self.assertFalse(self.history.exists())
+
+    def test_invalid_or_corrupt_shared_settings_are_reported_without_overwriting(self):
+        from config import load_settings
+        from document_settings import load_active_document, save_active_document
+        settings = load_settings(base_dir=self.directory, pdf_path=self.pdf, index_path=self.index)
+        document = {'pdf_path': str(self.pdf), 'index_path': str(self.index), 'max_pages': 1}
+        save_active_document(settings, document)
+        before = settings.knowledge_settings_path.read_bytes()
+        for limit in (0, -1, True, '全文'):
+            with self.subTest(limit=limit), self.assertRaises(ValueError):
+                save_active_document(settings, dict(document, max_pages=limit))
+            self.assertEqual(settings.knowledge_settings_path.read_bytes(), before)
+        settings.knowledge_settings_path.write_text('{broken', encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, '知识库设置'):
+            load_active_document(settings)
+        self.assertEqual(settings.knowledge_settings_path.read_text(encoding='utf-8'), '{broken')
 
     def test_document_selection_uses_independent_indexes_and_full_pdf(self):
         from document_settings import prepare_document

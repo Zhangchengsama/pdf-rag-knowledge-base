@@ -30,7 +30,7 @@ def failure_message(error, stage):
     if stage == 'model':
         return '本地嵌入模型未准备好或加载失败，请检查模型缓存后重试。'
     if isinstance(error, FileNotFoundError):
-        return 'PDF 或缓存文件不存在，请检查本会话绑定的文件后重试。'
+        return 'PDF 或缓存文件不存在，请在知识库管理页检查文件；重试时还需要原请求的资料。'
     if isinstance(error, APIStatusError):
         return f'大模型服务返回错误（HTTP {error.status_code}），请稍后重试。'
     if isinstance(error, ValueError):
@@ -92,23 +92,27 @@ def _recover_request(history_path):
     return metadata
 
 
-def start_request(history_path, question):
+def start_request(history_path, question, document=None):
     # 开始提问
     # 1. 先取得会话锁，再交给创建流程，防止重复提交。
     with conversation_lock(history_path):
-        return _start_request(history_path, question)
+        return _start_request(history_path, question, document)
 
 
-def _start_request(history_path, question):
+def _start_request(history_path, question, document=None):
     # 保存问题
     # 1. 检查问题内容和上次未完成请求。
-    # 2. 先保存请求信息，再追加一次用户消息。
+    # 2. 将本次使用的文档和范围保存在请求内，重试时继续使用。
+    # 3. 先保存请求信息，再追加一次用户消息。
     if not isinstance(question, str) or not question.strip():
         raise ValueError('请输入非空问题')
     metadata = _recover_request(history_path)
     if metadata.get('request', {}).get('status') == 'failed':
         raise ValueError('请先重试未完成的问题，或新建对话')
     request = _new_request(question, len(read_messages(history_path)))
+    selected = document if document is not None else metadata.get('document')
+    if selected is not None:
+        request['document'] = dict(selected)
     metadata['request'] = request
     # 先保存请求，再追加消息；中断后可按 user_index 补写，避免重复追加。
     save_metadata(history_path, metadata)
@@ -176,14 +180,14 @@ def generate_session_title(history_path, on_progress=None):
 
 
 def run_request(history_path, model_loader, on_progress=None, on_build_status=None,
-                force_rebuild=False):
+                force_rebuild=False, document=None):
     # 处理请求
     # 1. 取得会话锁后运行一次处理，阻止其他页面重复执行。
     with conversation_lock(history_path):
-        return _run_request(history_path, model_loader, on_progress, on_build_status, force_rebuild)
+        return _run_request(history_path, model_loader, on_progress, on_build_status, force_rebuild, document)
 
 
-def _run_request(history_path, model_loader, on_progress, on_build_status, force_rebuild):
+def _run_request(history_path, model_loader, on_progress, on_build_status, force_rebuild, document):
     # 执行问答
     # 1. 先核对已有回答，再准备本次尝试的状态。
     # 2. 加载模型，锁定共享文档并调用问答服务。
@@ -219,9 +223,12 @@ def _run_request(history_path, model_loader, on_progress, on_build_status, force
             on_progress(event)
 
     try:
-        document = metadata.get('document')
+        # 老的未完成请求沿用原资料；新请求优先使用提交时保存的设置。
+        document = request.get('document') or metadata.get('document') or document
         if not document:
-            raise ValueError('请先确认并绑定本会话的 PDF 和读取范围')
+            raise ValueError('请先在知识库管理页选择 PDF 和读取范围。')
+        request['document'] = dict(document)
+        save_metadata(history_path, metadata)
         with track_stage('model', report):
             model = model_loader()
         from rag_service import answer_question

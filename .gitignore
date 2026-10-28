@@ -21,6 +21,8 @@ htmlcov/
 **/data/conversations/
 /v6/data/documents/
 /v6/data/indexes/
+/v6/data/knowledge_base.json
+/v6/data/knowledge_base.*.tmp
 /chatdata/
 
 # Source documents, downloaded models, and generated retrieval caches
