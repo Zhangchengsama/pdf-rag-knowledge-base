@@ -448,3 +448,78 @@ class AppTests(unittest.TestCase):
         self.assertTrue(any('missing.pdf' in item.value for item in app.error))
         self.assertTrue(any('文本缓存' in str(item.value) for item in app.dataframe))
         self.assertFalse(self.index.exists())
+
+    def test_batch_upload_adds_files_without_changing_active_document(self):
+        from document_settings import load_active_document
+        first = types.SimpleNamespace(name='first.pdf', getvalue=self.pdf.read_bytes)
+        broken = types.SimpleNamespace(name='broken.pdf', getvalue=lambda: b'not a PDF')
+        second = types.SimpleNamespace(name='second.pdf', getvalue=self.pdf.read_bytes)
+        original = load_active_document(self.settings)
+        self.run_app()
+        app = self.show_manager()
+        with patch('knowledge_ui.st.file_uploader', return_value=[first, broken, second]):
+            app.button(key='upload_documents').click()
+            self.run_app()
+        self.assertEqual(load_active_document(self.settings), original)
+        self.assertEqual({p.name for p in self.settings.document_dir.rglob('*.pdf')}, {'first.pdf', 'second.pdf'})
+        self.assertTrue(any('成功 2' in item.value and '失败 1' in item.value for item in app.info))
+        self.assertTrue(any('broken.pdf' in str(item.value) for item in app.dataframe))
+        self.assertEqual(self.prompts, [])
+        self.assertFalse(self.index.exists())
+
+    def test_text_chunk_opens_its_pdf_page_without_changing_scope(self):
+        from document_settings import load_active_document
+        from knowledge_base import build_knowledge_base
+        build_knowledge_base(self.pdf, self.index, OfflineModel(), output_path=self.settings.output_path)
+        original = load_active_document(self.settings)
+        self.run_app()
+        app = self.show_manager()
+        app.segmented_control(key='knowledge_view').set_value('已入库文本')
+        self.run_app()
+        buttons = [item for item in app.button if item.label == '查看原页']
+        self.assertEqual(len(buttons), 2)
+        buttons[1].click()
+        self.run_app()
+        self.assertEqual(app.segmented_control(key='knowledge_view').value, 'PDF 原页预览')
+        page = next(item for item in app.number_input if item.label == 'PDF 页序')
+        self.assertEqual(page.value, 2)
+        self.assertEqual(len(app.get('image')), 1)
+        self.assertFalse(app.warning, [item.value for item in app.warning])
+        self.assertEqual(load_active_document(self.settings), original)
+        self.assertEqual(self.prompts, [])
+
+    def test_text_source_jump_keeps_original_pdf_if_another_window_switches_document(self):
+        from document_settings import load_active_document, prepare_document, save_active_document
+        from knowledge_base import build_knowledge_base
+        build_knowledge_base(self.pdf, self.index, OfflineModel(), output_path=self.settings.output_path)
+        self.run_app()
+        app = self.show_manager()
+        app.segmented_control(key='knowledge_view').set_value('已入库文本')
+        self.run_app()
+        source_button = [item for item in app.button if item.label == '查看原页'][1]
+        other = self.directory / 'other.pdf'
+        with pymupdf.open() as pdf:
+            pdf.new_page().insert_text((72, 72), 'another document')
+            pdf.save(other)
+        changed = prepare_document(other, 1, self.settings.pdf_path, self.settings.index_path,
+                                   self.settings.index_dir)
+        save_active_document(self.settings, changed)  # 模拟另一窗口切换共用设置。
+        source_button.click()
+        self.run_app()
+        self.assertEqual(load_active_document(self.settings), changed)
+        page = next(item for item in app.number_input if item.label == 'PDF 页序')
+        self.assertEqual(page.value, 2)
+        self.assertTrue(any('sample.pdf' in item.value and '来源' in item.value for item in app.info))
+        self.assertTrue(any('第 2 / 2 页' in item.value for item in app.caption))
+
+    def test_chat_displays_document_and_updates_range_after_management_change(self):
+        app = self.run_app()
+        self.assertTrue(any('当前资料：sample.pdf' in item.value for item in app.caption))
+        self.assertTrue(any('新提问读取范围：前 30 页' in item.value for item in app.caption))
+        self.show_manager()
+        app.radio[0].set_value('全文')
+        app.button(key='apply_document').click()
+        self.run_app()
+        self.show_chat()
+        self.assertTrue(any('新提问读取范围：全文' in item.value for item in app.caption))
+        self.assertEqual(self.prompts, [])

@@ -9,7 +9,8 @@ import knowledge_view
 from chat_workflow import failure_message
 from config import DEFAULT_MAX_PAGES
 from document_settings import (load_active_document, prepare_document,
-                               save_active_document, save_uploaded_pdf)
+                               save_active_document)
+from upload_workflow import save_upload_batch
 
 
 def size_text(size):
@@ -88,6 +89,7 @@ def document_saved():
     # 1. 清除上一次上传控件的选择，防止后续应用时覆盖刚切换的文档。
     st.session_state['document_form_revision'] = st.session_state.get('document_form_revision', 0) + 1
     st.session_state['knowledge_settings_saved'] = True
+    st.session_state.pop('source_preview_document', None)
     st.rerun()
 
 
@@ -138,17 +140,48 @@ def render_uploaded_documents(document, settings):
     return True
 
 
+def render_batch_upload(settings):
+    # 上传表单
+    # 1. 一次接收多份 PDF，通过已有保存接口逐份处理。
+    # 2. 保持当前资料和读取范围，保存结果后刷新列表并清空上传选择。
+    st.subheader('批量上传 PDF')
+    st.caption('上传成功的文件会加入上方列表，可点击“设为当前文档”使用；当前资料和范围保持原设置。')
+    revision = st.session_state.get('document_form_revision', 0)
+    with st.form('upload_documents_form'):
+        uploads = st.file_uploader('选择 PDF（可多选）', type=['pdf'], accept_multiple_files=True,
+                                   key=f'pdf_upload_{revision}')
+        submit = st.form_submit_button('上传所选 PDF', key='upload_documents')
+    if submit:
+        if not uploads:
+            st.warning('请先选择要上传的 PDF。')
+        else:
+            st.session_state['last_upload_results'] = save_upload_batch(uploads, settings.document_dir)
+            st.session_state['document_form_revision'] = revision + 1
+            st.rerun()
+
+
+def render_upload_results():
+    # 上传反馈
+    # 1. 在表单外显示汇总，保证上传后即使表单收起也能看到结果。
+    results = st.session_state.get('last_upload_results')
+    if results:
+        success = sum(row['status'] == 'success' for row in results)
+        failed = len(results) - success
+        st.info(f'上传结果：成功 {success}，失败 {failed}。成功文件已加入文档列表。')
+        with st.expander('查看逐份上传结果', expanded=failed > 0):
+            st.dataframe([{'文件名': row['name'], '结果': '成功' if row['status'] == 'success' else '失败',
+                           '说明': row['message']} for row in results], hide_index=True, width='stretch')
+
+
 def render_document_form(document, settings):
     # 文档设置
-    # 1. 读取本机路径或上传文件，以及前几页或全文的选择。
+    # 1. 读取本机路径，以及前几页或全文的选择。
     # 2. 点击应用后检查文档，保存所有会话共用的设置。
     # 3. 刷新管理页，新提问使用新设置，已提交的请求继续使用原资料。
     st.subheader("文档与读取范围")
-    st.caption("上传文件时优先使用上传的 PDF；修改后请点击“应用文档和范围”。")
+    st.caption('应用本机路径或读取范围后，所有会话的新提问使用这里保存的设置。')
     with st.form("knowledge_base_document"):
         pdf_text = st.text_input("本机 PDF 路径", value=document["pdf_path"])
-        revision = st.session_state.get('document_form_revision', 0)
-        upload = st.file_uploader("或选择并上传 PDF", type=["pdf"], key=f'pdf_upload_{revision}')
         scope = st.radio("读取范围", ["前 N 页", "全文"],
                          index=1 if document["max_pages"] is None else 0)
         pages = st.number_input("读取页数", min_value=1,
@@ -157,15 +190,22 @@ def render_document_form(document, settings):
         apply = st.form_submit_button("应用文档和范围", key="apply_document")
     if apply:
         try:
-            selected_pdf = save_uploaded_pdf(upload, settings.document_dir) if upload else pdf_text
             selected = prepare_document(
-                selected_pdf, None if scope == "全文" else int(pages), settings.pdf_path,
+                pdf_text, None if scope == "全文" else int(pages), settings.pdf_path,
                 settings.index_path, settings.index_dir)
             save_active_document(settings, selected)
         except Exception as error:
             st.error(failure_message(error, "document"))
         else:
             document_saved()
+
+
+def open_pdf_page(document, page_number):
+    # 来源跳转
+    # 1. 在控件回调中设置目标页和内容视图，不改写知识库设置。
+    st.session_state['source_preview_document'] = dict(document)
+    st.session_state[f"preview_page_{document['pdf_path']}"] = page_number
+    st.session_state['knowledge_view'] = 'PDF 原页预览'
 
 
 def render_pdf_preview(document, overview):
@@ -176,8 +216,10 @@ def render_pdf_preview(document, overview):
     if not total:
         st.warning('无法预览当前 PDF，请检查文件和访问权限。')
         return
-    page = st.number_input('PDF 页序', min_value=1, max_value=total, value=1, step=1,
-                           key=f"preview_page_{document['pdf_path']}")
+    preview_key = f"preview_page_{document['pdf_path']}"
+    if preview_key in st.session_state:
+        st.session_state[preview_key] = min(total, max(1, st.session_state[preview_key]))
+    page = st.number_input('PDF 页序', min_value=1, max_value=total, step=1, key=preview_key)
     st.caption(f'第 {page} / {total} 页 · 使用 PDF 页序，可能与书内印刷页码不同。')
     covered = overview['state']['actual_pages']
     if covered is not None and page > covered:
@@ -217,9 +259,14 @@ def render_indexed_text(document, overview, count_slot):
         return
     result_page = st.number_input('文本结果页', min_value=1, max_value=max(1, math.ceil(len(matches) / 10)),
                                   value=1, step=1, key=f'chunk_result_page_{hash((signature, keyword, page))}')
-    for row in matches[(result_page - 1) * 10:result_page * 10]:
+    for position, row in enumerate(matches[(result_page - 1) * 10:result_page * 10],
+                                    start=(result_page - 1) * 10):
         with st.container(border=True):
-            st.caption(f"第 {row['page_number']} 页 · 文本块 {row['chunk_id']}")
+            with st.container(horizontal=True):
+                st.caption(f"第 {row['page_number']} 页 · 文本块 {row['chunk_id']}")
+                st.button('查看原页', key=f'open_pdf_page_{hash(signature)}_{position}',
+                          on_click=open_pdf_page, args=(dict(document), row['page_number']),
+                          disabled=not 1 <= row['page_number'] <= (overview['total_pages'] or 0))
             st.text(row['text'])
 
 
@@ -258,14 +305,25 @@ def run_knowledge_page(settings):
     overview, count_slot = render_knowledge_base_status(document, settings)
     st.divider()
     has_uploads = render_uploaded_documents(document, settings)
+    render_upload_results()
     with st.expander('上传 PDF／本机路径与读取范围', expanded=not has_uploads):
+        render_batch_upload(settings)
+        st.divider()
         render_document_form(document, settings)
     st.divider()
+    st.session_state.setdefault('knowledge_view', '状态详情')
     view = st.segmented_control('查看内容', ['状态详情', 'PDF 原页预览', '已入库文本'],
-                                 default='状态详情', key='knowledge_view', selection_mode='single',
+                                 key='knowledge_view', selection_mode='single',
                                  required=True)
+    if view != 'PDF 原页预览':
+        st.session_state.pop('source_preview_document', None)
     if view == 'PDF 原页预览':
-        render_pdf_preview(document, overview)
+        source = st.session_state.get('source_preview_document', document)
+        if source['pdf_path'] != document['pdf_path']:
+            st.info(f"来源文档：{Path(source['pdf_path']).name}；当前知识库已切换，正在只读预览原来源。")
+            render_pdf_preview(source, knowledge_view.document_overview(source))
+        else:
+            render_pdf_preview(document, overview)
     elif view == '已入库文本':
         render_indexed_text(document, overview, count_slot)
     else:

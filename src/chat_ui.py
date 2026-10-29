@@ -274,7 +274,12 @@ def run_chat_page(settings):
     except (OSError, ValueError) as error:
         st.error(failure_message(error, "document"))
         document = None
-    st.caption("提问使用“知识库管理”中当前选择的资料。")
+    if document is not None:
+        st.caption(f"当前资料：{Path(document['pdf_path']).name}")
+        scope = '全文' if document['max_pages'] is None else f"前 {document['max_pages']} 页"
+        st.caption(f'新提问读取范围：{scope}')
+    else:
+        st.caption('请在知识库管理页检查当前资料和读取范围。')
     render_messages(messages)
     render_request_status(history_path, metadata, messages, busy, settings, document)
     render_question_input(history_path, metadata, document, busy, settings)
