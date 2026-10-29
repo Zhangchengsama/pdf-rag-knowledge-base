@@ -85,7 +85,8 @@ def process_current_request(history_path, settings, document):
     try:
         metadata = run_request(history_path, lambda: load_model(settings.embedding_model), on_progress=report,
                                on_build_status=record_build_status,
-                               force_rebuild=settings.force_rebuild, document=document)
+                               force_rebuild=settings.force_rebuild, document=document,
+                               mapping_path=settings.path_map_path)
         request = metadata["request"]
         status.update(
             label=f"处理{'完成' if request['status'] == 'complete' else '失败'}"

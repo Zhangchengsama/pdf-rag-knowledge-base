@@ -13,7 +13,7 @@ import pymupdf
 from streamlit.testing.v1 import AppTest
 from test_regressions import TinyModel
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1] / 'src'
 sys.path.insert(0, str(ROOT))
 
 

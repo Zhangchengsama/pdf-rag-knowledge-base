@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pymupdf
 from test_regressions import TinyModel
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1] / 'src'
 sys.path.insert(0, str(ROOT))
 
 

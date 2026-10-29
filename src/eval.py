@@ -117,10 +117,11 @@ def run_evaluation(settings=None, model_loader=None):
     print("正在加载 embedding 模型...")
     print(f"模型加载完成，用时 {time.perf_counter() - started:.2f}s")
     knowledge_base.build_knowledge_base(settings.pdf_path, settings.index_path, model,
-                                       max_pages=settings.max_pages, force_rebuild=settings.force_rebuild)
-    bm25 = cache_store.load_bm25(settings.pdf_path)
+                                       max_pages=settings.max_pages, force_rebuild=settings.force_rebuild,
+                                       output_path=settings.output_path)
+    bm25 = cache_store.load_bm25(settings.output_path)
     questions = load_eval_questions(get_eval_set_path(settings))
-    results = evaluate_model(questions, settings.index_path, settings.pdf_path.with_suffix(".json"),
+    results = evaluate_model(questions, settings.index_path, settings.output_path,
                              model, bm25, final_k=FINAL_K)
     print_evaluation_report(results)
     return results

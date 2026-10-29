@@ -8,11 +8,18 @@ import sys
 import unittest
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1] / 'src'
 sys.path.insert(0, str(ROOT))
 
 
 class StructureTests(unittest.TestCase):
+    def test_root_entrypoint_runs_from_another_working_directory(self):
+        project = Path(__file__).resolve().parents[1]
+        process = subprocess.run([sys.executable, '-B', str(project / 'run.py'), '--help'],
+                                 cwd=project.parent, capture_output=True, text=True, timeout=15)
+        self.assertEqual(process.returncode, 0, process.stderr)
+        self.assertIn('--cli', process.stdout)
+
     def test_chunker_keeps_character_overlap_and_tail(self):
         from chunker import split_text
         from get_pdf import split_text as old_split
@@ -30,6 +37,8 @@ class StructureTests(unittest.TestCase):
 
     def test_settings_are_read_only_and_default_to_thirty_pages(self):
         from config import load_settings
+        self.assertEqual(load_settings().base_dir, ROOT.parent)
+        self.assertEqual(load_settings().evaluation_path, ROOT.parent / 'tests' / 'eval_questions.json')
         settings = load_settings(base_dir=ROOT)
         self.assertEqual(settings.max_pages, 30)
         self.assertEqual(settings.conversation_dir, ROOT / 'data' / 'conversations')
@@ -74,6 +83,15 @@ class StructureTests(unittest.TestCase):
         self.assertEqual(received[0]['max_pages'], 30)
         self.assertEqual(received[0]['text_input'], '用户问题')
         self.assertIs(received[0]['model'], model)
+
+    def test_cli_keeps_old_strict_answer_callback_signature(self):
+        from cli import run_cli
+        from config import load_settings
+        def answer(road, index_path, text_input, model, max_pages=30, force_rebuild=False):
+            return {'answer': text_input, 'sources': []}
+        result = run_cli(load_settings(), input_fn=lambda label: 'apple', output_fn=lambda text: None,
+                         model_loader=object, answer_fn=answer)
+        self.assertEqual(result, {'answer': 'apple', 'sources': []})
 
     def test_all_modules_import_without_input_server_model_or_client(self):
         code = '''

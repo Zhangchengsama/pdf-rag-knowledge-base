@@ -15,11 +15,12 @@ def load_chunks(output_path, data=None):
         return json.load(stream)
 
 
-def save_to_json(data, road):
+def save_to_json(data, road, output_path=None):
     # 保存文本
-    # 1. 使用 PDF 同名的 JSON 路径。
+    # 1. 显式路径用于集中缓存，未传入时使用 PDF 同名的 JSON 路径。
     # 2. 沿用原字段和缩进写入，返回文件位置。
-    path = Path(road).with_suffix(".json")
+    path = Path(output_path) if output_path is not None else Path(road).with_suffix(".json")
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as stream:
         json.dump(data, stream, ensure_ascii=False, indent=2)
     return path
@@ -75,19 +76,20 @@ def load_dense_index(index_path, dim, space):
     return index
 
 
-def cache_paths(road, index_path):
+def cache_paths(road, index_path, output_path=None):
     # 缓存位置
-    # 1. 按原规则列出文本、向量、BM25 和 HNSW 文件。
-    road = Path(road)
-    return (road.with_suffix(".json"), road.with_suffix(".npy"),
-            road.with_suffix(".pkl"), Path(index_path))
+    # 1. 根据文本缓存位置列出四种文件，未指定时保留旧路径规则。
+    text_path = Path(output_path) if output_path is not None else Path(road).with_suffix('.json')
+    return (text_path, text_path.with_suffix(".npy"),
+            text_path.with_suffix(".pkl"), Path(index_path))
 
 
-def metadata_paths(road, index_path):
+def metadata_paths(road, index_path, output_path=None):
     # 记录位置
-    # 1. 定位 PDF 和索引各自的建库记录。
-    road, index_path = Path(road), Path(index_path)
-    return (road.with_suffix(".build.json"),
+    # 1. 定位文本缓存和索引各自的记录，未指定文本路径时仍在 PDF 旁边。
+    text_path = Path(output_path) if output_path is not None else Path(road)
+    index_path = Path(index_path)
+    return (text_path.with_suffix(".build.json"),
             index_path.with_suffix(index_path.suffix + ".meta.json"))
 
 

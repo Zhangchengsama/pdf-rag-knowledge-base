@@ -12,7 +12,7 @@ class TitleTests(unittest.TestCase):
         client = MagicMock()
         client.chat.completions.create.return_value = types.SimpleNamespace(choices=[
             types.SimpleNamespace(message=types.SimpleNamespace(content=content))])
-        source = Path(__file__).resolve().parents[1] / 'LLM.py'
+        source = Path(__file__).resolve().parents[1] / 'src' / 'LLM.py'
         spec = importlib.util.spec_from_file_location('title_llm_under_test', source)
         module = importlib.util.module_from_spec(spec)
         with patch.dict(os.environ, {'DEEPSEEK_API_KEY': 'offline-test'}), \

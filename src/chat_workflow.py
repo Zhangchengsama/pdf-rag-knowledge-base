@@ -7,6 +7,7 @@ from conversations import (append_message, first_question, load_metadata,
 from progress import track_stage
 from conversation_lock import (ConversationBusyError, DocumentBusyError,
                                conversation_lock, document_lock)
+from document_settings import resolve_document
 
 
 def failure_message(error, stage):
@@ -180,14 +181,16 @@ def generate_session_title(history_path, on_progress=None):
 
 
 def run_request(history_path, model_loader, on_progress=None, on_build_status=None,
-                force_rebuild=False, document=None):
+                force_rebuild=False, document=None, mapping_path=None):
     # 处理请求
     # 1. 取得会话锁后运行一次处理，阻止其他页面重复执行。
     with conversation_lock(history_path):
-        return _run_request(history_path, model_loader, on_progress, on_build_status, force_rebuild, document)
+        return _run_request(history_path, model_loader, on_progress, on_build_status, force_rebuild,
+                            document, mapping_path)
 
 
-def _run_request(history_path, model_loader, on_progress, on_build_status, force_rebuild, document):
+def _run_request(history_path, model_loader, on_progress, on_build_status, force_rebuild, document,
+                 mapping_path):
     # 执行问答
     # 1. 先核对已有回答，再准备本次尝试的状态。
     # 2. 加载模型，锁定共享文档并调用问答服务。
@@ -227,6 +230,7 @@ def _run_request(history_path, model_loader, on_progress, on_build_status, force
         document = request.get('document') or metadata.get('document') or document
         if not document:
             raise ValueError('请先在知识库管理页选择 PDF 和读取范围。')
+        document = resolve_document(document, mapping_path)
         request['document'] = dict(document)
         save_metadata(history_path, metadata)
         with track_stage('model', report):
@@ -237,7 +241,8 @@ def _run_request(history_path, model_loader, on_progress, on_build_status, force
             result = answer_question(
                 document['pdf_path'], document['index_path'], request['question'], model,
                 max_pages=document['max_pages'], force_rebuild=force_rebuild, on_progress=report,
-                on_build_status=on_build_status)
+                on_build_status=on_build_status,
+                **({'output_path': document['output_path']} if 'output_path' in document else {}))
         append_message(history_path, {'role': 'assistant', 'content': result['answer'],
                                       'sources': result['sources']})
         request.update(status='complete', error=None)

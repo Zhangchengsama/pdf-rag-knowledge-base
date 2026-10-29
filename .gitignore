@@ -25,6 +25,11 @@ htmlcov/
 /v6/data/knowledge_base.*.tmp
 /chatdata/
 
+# Runtime data stays separate from source; only directory documentation is tracked.
+/data/*
+!/data/README.md
+
+
 # Source documents, downloaded models, and generated retrieval caches
 *.pdf
 *.npy

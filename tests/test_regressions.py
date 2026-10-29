@@ -1,6 +1,6 @@
 """离线回归检查：真实小型索引与语料，不下载模型、不调用大模型。
 
-运行：python -B -m unittest discover -s test -p test_regressions.py -v
+运行：python -B -m unittest discover -s tests -p test_regressions.py -v
 测试产物保留在系统临时目录，每次仅产生数 KB，不执行目录删除。
 """
 import importlib
@@ -15,7 +15,7 @@ from unittest.mock import patch
 import numpy as np
 import pymupdf
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1] / 'src'
 sys.path.insert(0, str(ROOT))
 
 

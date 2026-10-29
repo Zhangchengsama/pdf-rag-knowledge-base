@@ -11,9 +11,10 @@ def run_cli(settings, input_fn=input, output_fn=print, model_loader=None, answer
     model = model_loader() if model_loader else embedding.load_embedding_model(settings.embedding_model)
     question = input_fn("请输入要查询的文本：")
     answer = answer_fn or rag_service.answer_question
+    paths = {'output_path': settings.output_path} if answer_fn is None else {}
     result = answer(road=settings.pdf_path, index_path=settings.index_path,
                     text_input=question, model=model, max_pages=settings.max_pages,
-                    force_rebuild=settings.force_rebuild)
+                    force_rebuild=settings.force_rebuild, **paths)
     output_fn("最终回答：")
     output_fn(result["answer"])
     return result

@@ -15,7 +15,7 @@ def render_knowledge_base_status(document, settings):
     # 2. 显示读取范围及复用状态。
     # 3. 缓存版本匹配时复用已知块数，否则显示未统计。
     state = get_knowledge_base_status(document["pdf_path"], document["index_path"],
-                                     max_pages=document["max_pages"])
+                                     max_pages=document["max_pages"], output_path=document.get('output_path'))
     st.subheader("当前知识库")
     st.caption(Path(document["pdf_path"]).name)
     limit = document["max_pages"]
