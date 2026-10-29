@@ -104,7 +104,7 @@ embedding.SentenceTransformer = forbidden
 sys.modules['sentence_transformers'] = embedding
 # 第三方库可能查询操作系统版本；这里检查的是项目导入，不拦截库初始化。
 import streamlit, openai, pymupdf, hnswlib, jieba, rank_bm25
-modules = ['config', 'main', 'ui', 'chat_ui', 'knowledge_ui', 'cli', 'chunker', 'embedding', 'fusion',
+modules = ['config', 'main', 'ui', 'chat_ui', 'knowledge_ui', 'knowledge_view', 'cli', 'chunker', 'embedding', 'fusion',
            'cache_store', 'knowledge_base', 'get_pdf', 'dense', 'sparse',
            'query', 'prompt', 'rag_service', 'LLM', 'eval', 'conversations',
            'chat_workflow', 'document_settings', 'conversation_lock', 'progress']

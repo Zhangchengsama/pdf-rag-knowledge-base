@@ -371,4 +371,80 @@ class AppTests(unittest.TestCase):
         self.assertEqual(load_active_document(self.settings)['pdf_path'], str(self.pdf))
         self.show_chat()
         self.assertFalse(app.chat_input[0].disabled)
+
+    def test_uploaded_list_switches_shared_document_and_preserves_range(self):
+        from document_settings import save_uploaded_pdf, load_active_document, save_active_document
+        upload = types.SimpleNamespace(name='uploaded.pdf', getvalue=self.pdf.read_bytes)
+        uploaded = save_uploaded_pdf(upload, self.settings.document_dir)
+        save_active_document(self.settings, {'pdf_path': str(self.pdf), 'index_path': str(self.index),
+                                             'output_path': str(self.settings.output_path), 'max_pages': 1})
+        self.run_app()
+        app = self.show_manager()
+        self.assertTrue(any('uploaded.pdf' in str(item.value) for item in app.dataframe))
+        app.selectbox(key='uploaded_document').select(str(uploaded.resolve()))
+        app.button(key='use_uploaded_document').click()
+        self.run_app()
+        current = load_active_document(self.settings)
+        self.assertEqual(current['pdf_path'], str(uploaded.resolve()))
+        self.assertEqual(current['max_pages'], 1)
+        self.assertEqual(app.text_input[0].value, str(uploaded.resolve()))
+        self.assertFalse(Path(current['index_path']).exists())
+        self.assertEqual(self.prompts, [])
+        self.app = AppTest.from_function(render_test_app, args=(self.settings,), default_timeout=10)
+        self.run_app()
+        app = self.show_manager()
+        self.assertEqual(app.text_input[0].value, str(uploaded.resolve()))
+
+    def test_management_preview_is_on_demand_and_does_not_build(self):
+        self.run_app()
+        with patch('knowledge_view.render_pdf_page', side_effect=AssertionError('不应自动渲染')):
+            app = self.show_manager()
+        app.segmented_control(key='knowledge_view').set_value('PDF 原页预览')
+        self.run_app()
+        self.assertEqual(len(app.get('image')), 1)
+        page = next(item for item in app.number_input if item.label == 'PDF 页序')
+        page.set_value(2)
+        self.run_app()
+        self.assertTrue(any('第 2 / 2 页' in item.value for item in app.caption))
+        self.assertFalse(self.pdf.with_suffix('.json').exists())
+        self.assertFalse(self.index.exists())
+        self.assertEqual(self.prompts, [])
+
+    def test_management_text_view_filters_ready_chunks_and_rejects_stale_cache(self):
+        from knowledge_base import build_knowledge_base
+        build_knowledge_base(self.pdf, self.index, OfflineModel(), output_path=self.settings.output_path)
+        self.run_app()
+        app = self.show_manager()
+        app.segmented_control(key='knowledge_view').set_value('已入库文本')
+        self.run_app()
+        self.assertEqual([item.value.strip() for item in app.text], ['apple', 'banana'])
+        next(item for item in app.text_input if item.label == '关键词').set_value('apple')
+        self.run_app()
+        self.assertEqual([item.value.strip() for item in app.text], ['apple'])
+        build_knowledge_base(self.pdf, self.index, OfflineModel(), max_pages=1,
+                             output_path=self.settings.output_path)
+        self.run_app()
+        self.assertEqual(len(app.text), 0)
+        self.assertTrue(any('匹配' in item.value for item in app.info))
+        self.assertEqual(self.prompts, [])
+
+    def test_management_empty_catalog_and_unbuilt_text_have_clear_states(self):
+        self.run_app()
+        app = self.show_manager()
+        self.assertTrue(any('还没有上传' in item.value for item in app.info))
+        app.segmented_control(key='knowledge_view').set_value('已入库文本')
+        with patch('cache_store.load_chunks', side_effect=AssertionError('不应加载未建库文本')):
+            self.run_app()
+        self.assertTrue(any('匹配' in item.value for item in app.info))
+        self.assertFalse(self.index.exists())
+
+    def test_management_status_exposes_missing_cache_and_source_error(self):
+        from document_settings import save_active_document
+        save_active_document(self.settings, {'pdf_path': str(self.directory / 'missing.pdf'),
+                                             'index_path': str(self.index), 'max_pages': 30})
+        self.run_app()
+        app = self.show_manager()
+        self.assertTrue(any('缺少缓存' in item.value for item in app.warning))
+        self.assertTrue(any('missing.pdf' in item.value for item in app.error))
+        self.assertTrue(any('文本缓存' in str(item.value) for item in app.dataframe))
         self.assertFalse(self.index.exists())
